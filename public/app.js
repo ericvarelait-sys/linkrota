@@ -7,9 +7,9 @@ let currentStatsId = null;
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
-function getToken() {
-  return localStorage.getItem('lr_token');
-}
+function getToken() { return localStorage.getItem('lr_token'); }
+function getRole()  { return localStorage.getItem('lr_role'); }
+function getEmail() { return localStorage.getItem('lr_email'); }
 
 function requireAuth() {
   if (!getToken()) {
@@ -25,6 +25,8 @@ async function logout() {
     try { await fetch('/api/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }); } catch {}
   }
   localStorage.removeItem('lr_token');
+  localStorage.removeItem('lr_role');
+  localStorage.removeItem('lr_email');
   window.location.replace('/login.html');
 }
 
@@ -35,6 +37,9 @@ document.addEventListener('DOMContentLoaded', () => {
   applyTheme();
   loadRotators();
   bindEvents();
+  if (getRole() === 'admin') {
+    document.getElementById('btnTeam').style.display = 'inline-flex';
+  }
 });
 
 function bindEvents() {
@@ -47,6 +52,12 @@ function bindEvents() {
   document.getElementById('btnCloseStats').onclick = closeStatsModal;
   document.getElementById('btnTheme').onclick = toggleTheme;
   document.getElementById('btnLogout').onclick = logout;
+  document.getElementById('btnTeam').onclick = openTeamModal;
+  document.getElementById('btnCloseTeam').onclick = closeTeamModal;
+  document.getElementById('btnAddMember').onclick = addMember;
+  document.getElementById('modalTeam').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeTeamModal();
+  });
 
   // Close modal on overlay click
   document.getElementById('modalRotator').addEventListener('click', e => {
@@ -505,6 +516,88 @@ function toast(msg, type = 'info') {
   const container = document.getElementById('toastContainer');
   container.appendChild(el);
   setTimeout(() => el.remove(), 3000);
+}
+
+// ─── Team Panel ───────────────────────────────────────────────────────────────
+
+async function openTeamModal() {
+  document.getElementById('modalTeam').classList.add('open');
+  document.getElementById('newUserEmail').value = '';
+  document.getElementById('newUserPassword').value = '';
+  document.getElementById('newUserRole').value = 'member';
+  await loadTeamMembers();
+}
+
+function closeTeamModal() {
+  document.getElementById('modalTeam').classList.remove('open');
+}
+
+async function loadTeamMembers() {
+  const list = document.getElementById('teamList');
+  list.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:8px 0">Cargando…</div>';
+  try {
+    const members = await api('GET', '/api/users');
+    const myEmail = getEmail();
+    list.innerHTML = members.map(m => {
+      const initials = m.email.slice(0, 2).toUpperCase();
+      const isMe = m.email === myEmail;
+      const date = new Date(m.created_at).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' });
+      return `
+        <div class="team-member">
+          <div class="team-member-info">
+            <div class="team-avatar">${escHtml(initials)}</div>
+            <div>
+              <div class="team-email">${escHtml(m.email)}${isMe ? ' <span style="color:var(--text3);font-size:11px">(tú)</span>' : ''}</div>
+              <div class="team-meta">Desde ${date}</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="badge badge-${m.role}">${m.role === 'admin' ? 'Admin' : 'Miembro'}</span>
+            ${!isMe ? `<button class="btn btn-icon btn-danger" onclick="deleteMember('${m.id}','${escHtml(m.email)}')" title="Eliminar">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+            </button>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = `<div style="color:var(--red);font-size:13px">${e.message}</div>`;
+  }
+}
+
+async function addMember() {
+  const email    = document.getElementById('newUserEmail').value.trim();
+  const password = document.getElementById('newUserPassword').value;
+  const role     = document.getElementById('newUserRole').value;
+  const btn      = document.getElementById('btnAddMember');
+
+  if (!email || !password) { toast('Completa email y contraseña', 'error'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Agregando…';
+  try {
+    await api('POST', '/api/users', { email, password, role });
+    toast('Miembro agregado', 'success');
+    document.getElementById('newUserEmail').value = '';
+    document.getElementById('newUserPassword').value = '';
+    await loadTeamMembers();
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Agregar';
+  }
+}
+
+async function deleteMember(id, email) {
+  if (!confirm(`¿Eliminar a ${email} del equipo?`)) return;
+  try {
+    await api('DELETE', `/api/users/${id}`);
+    toast('Miembro eliminado', 'info');
+    await loadTeamMembers();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

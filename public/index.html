@@ -18,6 +18,10 @@
       <span>LinkRota</span>
     </div>
     <div class="nav-actions">
+      <button class="btn btn-ghost" id="btnTeam" style="display:none">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Equipo
+      </button>
       <button class="btn btn-primary" id="btnNewRotator">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Nuevo Rotador
@@ -113,6 +117,36 @@
         </button>
       </div>
       <div class="modal-body" id="statsBody"></div>
+    </div>
+  </div>
+
+  <!-- ═══ MODAL: Equipo ═══ -->
+  <div class="modal-overlay" id="modalTeam">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>Equipo</h2>
+        <button class="btn btn-icon" id="btnCloseTeam">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <!-- Add member form -->
+        <div class="team-add-form">
+          <div class="team-add-title">Agregar miembro</div>
+          <div class="team-add-fields">
+            <input type="email" id="newUserEmail" placeholder="email@ejemplo.com" />
+            <input type="password" id="newUserPassword" placeholder="Contraseña (mín. 6 caracteres)" />
+            <select id="newUserRole">
+              <option value="member">Miembro</option>
+              <option value="admin">Admin</option>
+            </select>
+            <button class="btn btn-primary" id="btnAddMember">Agregar</button>
+          </div>
+        </div>
+        <!-- Members list -->
+        <div class="team-section-title">Miembros actuales</div>
+        <div id="teamList" class="team-list"></div>
+      </div>
     </div>
   </div>
 
