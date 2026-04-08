@@ -101,14 +101,17 @@
         </div>
 
         <div class="form-group">
-          <label>Links <span class="label-hint">(mayor peso = más clicks recibe)</span></label>
+          <label>Links <span class="label-hint">(los porcentajes deben sumar 100%)</span></label>
           <div class="links-col-headers">
             <span>Etiqueta</span>
             <span>URL</span>
-            <span title="Peso relativo. Ej: 50/30/20 → 50%, 30%, 20%">Peso</span>
+            <span>%</span>
             <span></span>
           </div>
           <div id="linksList"></div>
+          <div class="weight-total-row">
+            <span>Total: </span><span id="weightTotal" class="weight-total-val">0</span><span>%</span>
+          </div>
           <button class="btn btn-ghost btn-sm mt-8" id="btnAddLink">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Agregar link

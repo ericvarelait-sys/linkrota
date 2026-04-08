@@ -307,16 +307,18 @@ function addLinkRow(label = '', url = '', lid = '', clicks = 0, weight = 1) {
   row.innerHTML = `
     <input type="text" placeholder="Etiqueta" value="${escHtml(label)}" class="link-label" maxlength="40" />
     <input type="url" placeholder="https://..." value="${escHtml(url)}" class="link-url" />
-    <input type="number" min="1" max="9999" value="${weight}" class="link-weight" title="Peso relativo. Ej: 50/30/20 → 50%, 30%, 20%" />
+    <input type="number" min="1" max="100" value="${weight}" class="link-weight" title="Porcentaje de tráfico para este link" />
     <button class="btn-remove-link" title="Eliminar link">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
   `;
   row.querySelector('.btn-remove-link').onclick = () => {
-    if (list.children.length > 1) row.remove();
+    if (list.children.length > 1) { row.remove(); updateWeightTotal(); }
     else toast('Debe haber al menos 1 link', 'error');
   };
+  row.querySelector('.link-weight').addEventListener('input', updateWeightTotal);
   list.appendChild(row);
+  updateWeightTotal();
 }
 
 async function saveRotator() {
@@ -562,6 +564,15 @@ function toggleTheme() {
   const next = current === 'dark' ? 'light' : 'dark';
   localStorage.setItem('lr_theme', next);
   applyTheme();
+}
+
+function updateWeightTotal() {
+  const inputs = document.querySelectorAll('#linksList .link-weight');
+  const sum = Array.from(inputs).reduce((acc, el) => acc + (parseInt(el.value) || 0), 0);
+  const el = document.getElementById('weightTotal');
+  if (!el) return;
+  el.textContent = sum;
+  el.className = 'weight-total-val ' + (sum === 100 ? 'ok' : 'bad');
 }
 
 function setView(view) {

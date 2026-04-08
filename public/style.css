@@ -280,6 +280,14 @@ input, textarea { font-family: inherit; }
 }
 .btn-remove-link:hover { background: var(--red-light); color: var(--red); }
 
+.weight-total-row {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 13px; color: var(--text2); margin-top: 4px; justify-content: flex-end;
+}
+.weight-total-val { font-weight: 700; }
+.weight-total-val.ok  { color: var(--green); }
+.weight-total-val.bad { color: var(--red); }
+
 /* ═══ STATS MODAL ═══ */
 .stats-summary {
   display: flex; gap: 12px; margin-bottom: 24px;
