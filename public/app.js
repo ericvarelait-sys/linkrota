@@ -4,6 +4,7 @@
 
 let rotators = [];
 let currentStatsId = null;
+let currentView = localStorage.getItem('lr_view') || 'grid';
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -55,6 +56,8 @@ function bindEvents() {
   document.getElementById('btnTeam').onclick = openTeamModal;
   document.getElementById('btnCloseTeam').onclick = closeTeamModal;
   document.getElementById('btnAddMember').onclick = addMember;
+  document.getElementById('btnViewGrid').onclick = () => setView('grid');
+  document.getElementById('btnViewList').onclick = () => setView('list');
   document.getElementById('modalTeam').addEventListener('click', e => {
     if (e.target === e.currentTarget) closeTeamModal();
   });
@@ -111,15 +114,21 @@ function renderAll() {
   const empty = document.getElementById('emptyState');
   const statsBar = document.getElementById('statsBar');
 
+  const viewControls = document.getElementById('viewControls');
+
   if (rotators.length === 0) {
     grid.innerHTML = '';
     empty.style.display = 'flex';
     statsBar.style.display = 'none';
+    viewControls.style.display = 'none';
     return;
   }
 
   empty.style.display = 'none';
   statsBar.style.display = 'flex';
+  viewControls.style.display = 'flex';
+  document.getElementById('btnViewGrid').classList.toggle('active', currentView === 'grid');
+  document.getElementById('btnViewList').classList.toggle('active', currentView === 'list');
 
   // Global stats
   const totalClicks = rotators.reduce((a, r) => a + (r.totalClicks || 0), 0);
@@ -128,9 +137,10 @@ function renderAll() {
   document.getElementById('statClicks').textContent = totalClicks.toLocaleString();
   document.getElementById('statLinks').textContent = totalLinks;
 
-  grid.innerHTML = rotators.map(renderCard).join('');
+  grid.className = currentView === 'list' ? 'rotators-list' : 'rotators-grid';
+  grid.innerHTML = rotators.map(currentView === 'list' ? renderRow : renderCard).join('');
 
-  // Bind card buttons
+  // Bind card/row buttons
   grid.querySelectorAll('[data-action]').forEach(el => {
     el.addEventListener('click', handleCardAction);
   });
@@ -141,15 +151,20 @@ function renderCard(r) {
   const linkCount = r.links?.length || 0;
   const createdDate = new Date(r.createdAt).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' });
 
-  const linksPreview = (r.links || []).slice(0, 4).map(l => `
+  const totalWeight = (r.links || []).reduce((sum, l) => sum + (l.weight || 1), 0);
+  const linksPreview = (r.links || []).slice(0, 4).map(l => {
+    const effectivePct = totalWeight > 0 ? Math.round(((l.weight || 1) / totalWeight) * 100) : 0;
+    return `
     <div class="link-preview-item">
       <span class="link-preview-label" title="${escHtml(l.url)}">${escHtml(l.label)}</span>
+      <span class="link-preview-pct">${effectivePct}%</span>
       <span class="link-preview-clicks">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m3 12 9-9 9 9"/><path d="m3 12 9 9 9-9"/></svg>
         ${(l.clicks || 0).toLocaleString()}
       </span>
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   const moreLinks = linkCount > 4 ? `<div class="link-preview-item"><span class="link-preview-label" style="color:var(--text3)">+${linkCount - 4} links más…</span></div>` : '';
 
@@ -197,6 +212,43 @@ function renderCard(r) {
   `;
 }
 
+function renderRow(r) {
+  const rotatorUrl = `${window.location.origin}/r/${r.slug}`;
+  const linkCount = r.links?.length || 0;
+  const createdDate = new Date(r.createdAt).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' });
+
+  return `
+    <div class="rotator-row" data-id="${r.id}">
+      <div class="row-name">
+        <div class="row-title">${escHtml(r.name)}</div>
+        <div class="row-meta">${linkCount} link${linkCount !== 1 ? 's' : ''} · ${createdDate}</div>
+      </div>
+      <div class="row-url">
+        <div class="card-url" title="${rotatorUrl}">${rotatorUrl}</div>
+        <button class="btn-copy" data-action="copy" data-url="${rotatorUrl}">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Copiar
+        </button>
+      </div>
+      <div class="row-clicks">
+        <span class="click-badge">${(r.totalClicks || 0).toLocaleString()}</span>
+        <span style="font-size:12px;color:var(--text2)">clicks</span>
+      </div>
+      <div class="row-actions">
+        <button class="btn btn-icon" data-action="stats" data-id="${r.id}" title="Estadísticas">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        </button>
+        <button class="btn btn-icon" data-action="edit" data-id="${r.id}" title="Editar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <button class="btn btn-icon btn-danger" data-action="delete" data-id="${r.id}" title="Eliminar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        </button>
+      </div>
+    </div>
+  `;
+}
+
 function handleCardAction(e) {
   const btn = e.currentTarget;
   const action = btn.dataset.action;
@@ -236,7 +288,7 @@ function openEditModal(id) {
 
   const list = document.getElementById('linksList');
   list.innerHTML = '';
-  r.links.forEach(l => addLinkRow(l.label, l.url, l.id, l.clicks));
+  r.links.forEach(l => addLinkRow(l.label, l.url, l.id, l.clicks, l.weight || 1));
 
   document.getElementById('modalRotator').classList.add('open');
   setTimeout(() => document.getElementById('rotatorName').focus(), 80);
@@ -246,7 +298,7 @@ function closeModal() {
   document.getElementById('modalRotator').classList.remove('open');
 }
 
-function addLinkRow(label = '', url = '', lid = '', clicks = 0) {
+function addLinkRow(label = '', url = '', lid = '', clicks = 0, weight = 1) {
   const list = document.getElementById('linksList');
   const row = document.createElement('div');
   row.className = 'link-row';
@@ -255,6 +307,7 @@ function addLinkRow(label = '', url = '', lid = '', clicks = 0) {
   row.innerHTML = `
     <input type="text" placeholder="Etiqueta" value="${escHtml(label)}" class="link-label" maxlength="40" />
     <input type="url" placeholder="https://..." value="${escHtml(url)}" class="link-url" />
+    <input type="number" min="1" max="9999" value="${weight}" class="link-weight" title="Peso relativo. Ej: 50/30/20 → 50%, 30%, 20%" />
     <button class="btn-remove-link" title="Eliminar link">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
@@ -290,7 +343,8 @@ async function saveRotator() {
       id: row.dataset.lid || undefined,
       label,
       url: normalized,
-      clicks: parseInt(row.dataset.clicks || 0)
+      clicks: parseInt(row.dataset.clicks || 0),
+      weight: Math.max(1, parseInt(row.querySelector('.link-weight').value) || 1)
     });
   });
 
@@ -360,24 +414,26 @@ function renderStats(r) {
 
   const avg = linkCount > 0 ? (total / linkCount).toFixed(1) : '0';
 
-  const topLink = r.links?.reduce((a, b) => (b.clicks || 0) > (a.clicks || 0) ? b : a, r.links[0]);
+  const totalWeight = (r.links || []).reduce((sum, l) => sum + (l.weight || 1), 0);
 
   const rows = (r.links || [])
     .map((l, i) => ({ ...l, idx: i }))
     .sort((a, b) => (b.clicks || 0) - (a.clicks || 0))
     .map(l => {
-      const pct = total > 0 ? Math.round(((l.clicks || 0) / total) * 100) : 0;
+      const actualPct = total > 0 ? Math.round(((l.clicks || 0) / total) * 100) : 0;
+      const configPct = totalWeight > 0 ? Math.round(((l.weight || 1) / totalWeight) * 100) : 0;
       return `
         <tr>
           <td>
             <div style="font-weight:500">${escHtml(l.label)}</div>
             <a href="${escHtml(l.url)}" target="_blank" class="stats-url" title="${escHtml(l.url)}">${escHtml(l.url)}</a>
           </td>
-          <td style="font-weight:700;color:var(--accent)">${(l.clicks || 0).toLocaleString()}</td>
-          <td style="color:var(--text2)">${pct}%</td>
+          <td style="color:var(--accent);font-weight:600">${configPct}%</td>
+          <td style="font-weight:700;color:var(--text)">${(l.clicks || 0).toLocaleString()}</td>
+          <td style="color:var(--text2)">${actualPct}%</td>
           <td>
             <div class="progress-bar-wrap">
-              <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+              <div class="progress-bar"><div class="progress-bar-fill" style="width:${actualPct}%"></div></div>
             </div>
           </td>
         </tr>
@@ -427,8 +483,9 @@ function renderStats(r) {
         <thead>
           <tr>
             <th>Link</th>
+            <th>Peso cfg.</th>
             <th>Clicks</th>
-            <th>%</th>
+            <th>% real</th>
             <th>Distribución</th>
           </tr>
         </thead>
@@ -505,6 +562,12 @@ function toggleTheme() {
   const next = current === 'dark' ? 'light' : 'dark';
   localStorage.setItem('lr_theme', next);
   applyTheme();
+}
+
+function setView(view) {
+  currentView = view;
+  localStorage.setItem('lr_view', view);
+  renderAll();
 }
 
 // ─── Toast ────────────────────────────────────────────────────────────────────

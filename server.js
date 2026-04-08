@@ -207,6 +207,16 @@ function generateSlug(name) {
   return `${base}-${generateId()}`;
 }
 
+function selectWeightedIndex(links) {
+  const totalWeight = links.reduce((sum, l) => sum + (l.weight || 1), 0);
+  let rand = Math.random() * totalWeight;
+  for (let i = 0; i < links.length; i++) {
+    rand -= (links[i].weight || 1);
+    if (rand <= 0) return i;
+  }
+  return links.length - 1;
+}
+
 function rowToRotator(row) {
   return {
     id: row.id,
@@ -244,11 +254,10 @@ app.get('/r/:slug', async (req, res) => {
         </body></html>`);
     }
 
-    const idx = row.current_index % links.length;
+    const idx = selectWeightedIndex(links);
     const target = links[idx];
 
     links[idx].clicks = (links[idx].clicks || 0) + 1;
-    const newIndex = (idx + 1) % links.length;
     const newTotal = row.total_clicks + 1;
 
     let history = row.click_history || [];
@@ -256,8 +265,8 @@ app.get('/r/:slug', async (req, res) => {
     if (history.length > 500) history = history.slice(-500);
 
     await pool.query(
-      `UPDATE rotators SET links=$1, total_clicks=$2, current_index=$3, click_history=$4 WHERE id=$5`,
-      [JSON.stringify(links), newTotal, newIndex, JSON.stringify(history), row.id]
+      `UPDATE rotators SET links=$1, total_clicks=$2, click_history=$3 WHERE id=$4`,
+      [JSON.stringify(links), newTotal, JSON.stringify(history), row.id]
     );
 
     res.redirect(target.url);
@@ -291,7 +300,8 @@ app.post('/api/rotators', authMiddleware, async (req, res) => {
     id: generateId(),
     label: (l.label || '').trim() || `Link ${i + 1}`,
     url: l.url.trim(),
-    clicks: 0
+    clicks: 0,
+    weight: Math.max(1, parseInt(l.weight) || 1)
   }));
 
   try {
@@ -330,7 +340,8 @@ app.put('/api/rotators/:id', authMiddleware, async (req, res) => {
         id: l.id || generateId(),
         label: (l.label || '').trim() || `Link ${i + 1}`,
         url: l.url.trim(),
-        clicks: l.clicks || 0
+        clicks: l.clicks || 0,
+        weight: Math.max(1, parseInt(l.weight) || 1)
       }));
     }
 
