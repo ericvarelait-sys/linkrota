@@ -1,11 +1,33 @@
 const express = require('express');
-const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-const DATA_FILE = path.join(__dirname, 'data', 'rotators.json');
+
+// ─── Database ─────────────────────────────────────────────────────────────────
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+});
+
+async function initDb() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS rotators (
+      id          TEXT PRIMARY KEY,
+      slug        TEXT UNIQUE NOT NULL,
+      name        TEXT NOT NULL,
+      links       JSONB NOT NULL DEFAULT '[]',
+      total_clicks INTEGER NOT NULL DEFAULT 0,
+      current_index INTEGER NOT NULL DEFAULT 0,
+      click_history JSONB NOT NULL DEFAULT '[]',
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  console.log('DB lista');
+}
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -34,18 +56,14 @@ function authMiddleware(req, res, next) {
 
 app.use(express.json());
 app.use((req, res, next) => {
-  res.setHeader('Content-Type-Options', 'nosniff');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   next();
 });
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
-    if (filePath.endsWith('.js')) {
-      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-    } else if (filePath.endsWith('.css')) {
-      res.setHeader('Content-Type', 'text/css; charset=utf-8');
-    } else if (filePath.endsWith('.html')) {
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    }
+    if (filePath.endsWith('.js'))   res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    else if (filePath.endsWith('.css'))  res.setHeader('Content-Type', 'text/css; charset=utf-8');
+    else if (filePath.endsWith('.html')) res.setHeader('Content-Type', 'text/html; charset=utf-8');
   }
 }));
 
@@ -71,18 +89,7 @@ app.post('/api/logout', authMiddleware, (req, res) => {
   res.json({ ok: true });
 });
 
-// ─── Data helpers ────────────────────────────────────────────────────────────
-
-function loadData() {
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ rotators: [] }, null, 2));
-  }
-  return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-}
-
-function saveData(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function generateId() {
   return crypto.randomBytes(4).toString('hex');
@@ -97,63 +104,84 @@ function generateSlug(name) {
   return `${base}-${generateId()}`;
 }
 
-// ─── Redirect route (must be before static) ──────────────────────────────────
+function rowToRotator(row) {
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    links: row.links,
+    totalClicks: row.total_clicks,
+    currentIndex: row.current_index,
+    clickHistory: row.click_history,
+    createdAt: row.created_at
+  };
+}
 
-app.get('/r/:slug', (req, res) => {
-  const data = loadData();
-  const rotator = data.rotators.find(r => r.slug === req.params.slug);
+// ─── Redirect route ───────────────────────────────────────────────────────────
 
-  if (!rotator) {
-    return res.status(404).send(`
-      <html><body style="font-family:sans-serif;text-align:center;padding:60px">
-        <h2>Link rotador no encontrado</h2>
-        <a href="/">Volver al inicio</a>
-      </body></html>
-    `);
+app.get('/r/:slug', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM rotators WHERE slug = $1', [req.params.slug]);
+    const row = rows[0];
+
+    if (!row) {
+      return res.status(404).send(`
+        <html><head><meta charset="UTF-8"></head>
+        <body style="font-family:sans-serif;text-align:center;padding:60px">
+          <h2>Link rotador no encontrado</h2>
+          <a href="/">Volver al inicio</a>
+        </body></html>
+      `);
+    }
+
+    const links = row.links;
+    if (!links || links.length === 0) {
+      return res.status(404).send(`
+        <html><head><meta charset="UTF-8"></head>
+        <body style="font-family:sans-serif;text-align:center;padding:60px">
+          <h2>Este rotador no tiene links configurados</h2>
+          <a href="/">Volver al inicio</a>
+        </body></html>
+      `);
+    }
+
+    const idx = row.current_index % links.length;
+    const target = links[idx];
+
+    links[idx].clicks = (links[idx].clicks || 0) + 1;
+    const newIndex = (idx + 1) % links.length;
+    const newTotal = row.total_clicks + 1;
+
+    let history = row.click_history || [];
+    history.push({ ts: Date.now(), linkIndex: idx, url: target.url });
+    if (history.length > 500) history = history.slice(-500);
+
+    await pool.query(
+      `UPDATE rotators SET links=$1, total_clicks=$2, current_index=$3, click_history=$4 WHERE id=$5`,
+      [JSON.stringify(links), newTotal, newIndex, JSON.stringify(history), row.id]
+    );
+
+    res.redirect(target.url);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Error interno');
   }
-
-  if (!rotator.links || rotator.links.length === 0) {
-    return res.status(404).send(`
-      <html><body style="font-family:sans-serif;text-align:center;padding:60px">
-        <h2>Este rotador no tiene links configurados</h2>
-        <a href="/">Volver al inicio</a>
-      </body></html>
-    `);
-  }
-
-  // Round-robin: pick current index, then advance
-  const idx = rotator.currentIndex % rotator.links.length;
-  const target = rotator.links[idx];
-
-  rotator.links[idx].clicks = (rotator.links[idx].clicks || 0) + 1;
-  rotator.totalClicks = (rotator.totalClicks || 0) + 1;
-  rotator.currentIndex = (idx + 1) % rotator.links.length;
-
-  // Track click history (last 500)
-  if (!rotator.clickHistory) rotator.clickHistory = [];
-  rotator.clickHistory.push({
-    ts: Date.now(),
-    linkIndex: idx,
-    url: target.url
-  });
-  if (rotator.clickHistory.length > 500) {
-    rotator.clickHistory = rotator.clickHistory.slice(-500);
-  }
-
-  saveData(data);
-  res.redirect(target.url);
 });
 
 // ─── API ──────────────────────────────────────────────────────────────────────
 
 // List all rotators
-app.get('/api/rotators', authMiddleware, (req, res) => {
-  const data = loadData();
-  res.json(data.rotators);
+app.get('/api/rotators', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM rotators ORDER BY created_at DESC');
+    res.json(rows.map(rowToRotator));
+  } catch (e) {
+    res.status(500).json({ error: 'Error al cargar datos' });
+  }
 });
 
 // Create rotator
-app.post('/api/rotators', authMiddleware, (req, res) => {
+app.post('/api/rotators', authMiddleware, async (req, res) => {
   const { name, links } = req.body;
 
   if (!name || typeof name !== 'string' || !name.trim()) {
@@ -163,87 +191,95 @@ app.post('/api/rotators', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'Se necesita al menos 1 link' });
   }
 
-  const data = loadData();
   const id = generateId();
   const slug = generateSlug(name.trim());
+  const mappedLinks = links.map((l, i) => ({
+    id: generateId(),
+    label: (l.label || '').trim() || `Link ${i + 1}`,
+    url: l.url.trim(),
+    clicks: 0
+  }));
 
-  const rotator = {
-    id,
-    slug,
-    name: name.trim(),
-    links: links.map((l, i) => ({
-      id: generateId(),
-      label: (l.label || '').trim() || `Link ${i + 1}`,
-      url: l.url.trim(),
-      clicks: 0
-    })),
-    totalClicks: 0,
-    currentIndex: 0,
-    clickHistory: [],
-    createdAt: new Date().toISOString()
-  };
-
-  data.rotators.unshift(rotator);
-  saveData(data);
-  res.status(201).json(rotator);
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO rotators (id, slug, name, links, total_clicks, current_index, click_history)
+       VALUES ($1, $2, $3, $4, 0, 0, '[]') RETURNING *`,
+      [id, slug, name.trim(), JSON.stringify(mappedLinks)]
+    );
+    res.status(201).json(rowToRotator(rows[0]));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al crear rotador' });
+  }
 });
 
 // Get single rotator
-app.get('/api/rotators/:id', authMiddleware, (req, res) => {
-  const data = loadData();
-  const rotator = data.rotators.find(r => r.id === req.params.id);
-  if (!rotator) return res.status(404).json({ error: 'No encontrado' });
-  res.json(rotator);
+app.get('/api/rotators/:id', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM rotators WHERE id = $1', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'No encontrado' });
+    res.json(rowToRotator(rows[0]));
+  } catch (e) {
+    res.status(500).json({ error: 'Error interno' });
+  }
 });
 
-// Update rotator (name + links)
-app.put('/api/rotators/:id', authMiddleware, (req, res) => {
+// Update rotator
+app.put('/api/rotators/:id', authMiddleware, async (req, res) => {
   const { name, links } = req.body;
-  const data = loadData();
-  const idx = data.rotators.findIndex(r => r.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'No encontrado' });
+  try {
+    const { rows: existing } = await pool.query('SELECT * FROM rotators WHERE id = $1', [req.params.id]);
+    if (!existing[0]) return res.status(404).json({ error: 'No encontrado' });
 
-  const rotator = data.rotators[idx];
+    const newName = (name && name.trim()) ? name.trim() : existing[0].name;
+    let newLinks = existing[0].links;
 
-  if (name && name.trim()) rotator.name = name.trim();
+    if (Array.isArray(links)) {
+      newLinks = links.map((l, i) => ({
+        id: l.id || generateId(),
+        label: (l.label || '').trim() || `Link ${i + 1}`,
+        url: l.url.trim(),
+        clicks: l.clicks || 0
+      }));
+    }
 
-  if (Array.isArray(links)) {
-    rotator.links = links.map((l, i) => ({
-      id: l.id || generateId(),
-      label: (l.label || '').trim() || `Link ${i + 1}`,
-      url: l.url.trim(),
-      clicks: l.clicks || 0
-    }));
-    rotator.currentIndex = 0;
+    const { rows } = await pool.query(
+      `UPDATE rotators SET name=$1, links=$2, current_index=0 WHERE id=$3 RETURNING *`,
+      [newName, JSON.stringify(newLinks), req.params.id]
+    );
+    res.json(rowToRotator(rows[0]));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al actualizar' });
   }
-
-  saveData(data);
-  res.json(rotator);
 });
 
 // Delete rotator
-app.delete('/api/rotators/:id', authMiddleware, (req, res) => {
-  const data = loadData();
-  const idx = data.rotators.findIndex(r => r.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'No encontrado' });
-  data.rotators.splice(idx, 1);
-  saveData(data);
-  res.json({ ok: true });
+app.delete('/api/rotators/:id', authMiddleware, async (req, res) => {
+  try {
+    const { rowCount } = await pool.query('DELETE FROM rotators WHERE id = $1', [req.params.id]);
+    if (rowCount === 0) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al eliminar' });
+  }
 });
 
-// Reset stats for a rotator
-app.post('/api/rotators/:id/reset', authMiddleware, (req, res) => {
-  const data = loadData();
-  const rotator = data.rotators.find(r => r.id === req.params.id);
-  if (!rotator) return res.status(404).json({ error: 'No encontrado' });
+// Reset stats
+app.post('/api/rotators/:id/reset', authMiddleware, async (req, res) => {
+  try {
+    const { rows: existing } = await pool.query('SELECT * FROM rotators WHERE id = $1', [req.params.id]);
+    if (!existing[0]) return res.status(404).json({ error: 'No encontrado' });
 
-  rotator.totalClicks = 0;
-  rotator.currentIndex = 0;
-  rotator.clickHistory = [];
-  rotator.links.forEach(l => { l.clicks = 0; });
-
-  saveData(data);
-  res.json(rotator);
+    const clearedLinks = existing[0].links.map(l => ({ ...l, clicks: 0 }));
+    const { rows } = await pool.query(
+      `UPDATE rotators SET total_clicks=0, current_index=0, click_history='[]', links=$1 WHERE id=$2 RETURNING *`,
+      [JSON.stringify(clearedLinks), req.params.id]
+    );
+    res.json(rowToRotator(rows[0]));
+  } catch (e) {
+    res.status(500).json({ error: 'Error al resetear' });
+  }
 });
 
 // ─── Catch-all → dashboard ────────────────────────────────────────────────────
@@ -251,6 +287,10 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`LinkRota corriendo en http://localhost:${PORT}`);
+// ─── Start ────────────────────────────────────────────────────────────────────
+initDb().then(() => {
+  app.listen(PORT, () => console.log(`LinkRota corriendo en http://localhost:${PORT}`));
+}).catch(err => {
+  console.error('Error conectando a la DB:', err.message);
+  process.exit(1);
 });
