@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LinkRota — Iniciar sesión</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 24px;
+    }
+    .login-card {
+      width: 100%; max-width: 400px;
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 16px; padding: 40px 36px;
+      box-shadow: var(--shadow);
+      animation: modalIn .2s ease;
+    }
+    .login-logo {
+      display: flex; align-items: center; justify-content: center;
+      gap: 10px; margin-bottom: 32px;
+      font-size: 22px; font-weight: 700; color: var(--accent);
+    }
+    .login-title {
+      font-size: 20px; font-weight: 700; text-align: center;
+      margin-bottom: 6px;
+    }
+    .login-sub {
+      font-size: 13px; color: var(--text2); text-align: center;
+      margin-bottom: 28px;
+    }
+    .login-field { margin-bottom: 16px; }
+    .login-field label {
+      display: block; font-size: 13px; font-weight: 600;
+      color: var(--text2); margin-bottom: 6px;
+    }
+    .login-field input {
+      width: 100%; background: var(--bg3); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 11px 14px;
+      font-size: 14px; color: var(--text); outline: none;
+      transition: border-color .15s;
+    }
+    .login-field input:focus { border-color: var(--accent); }
+    .login-field input::placeholder { color: var(--text3); }
+    .btn-login {
+      width: 100%; padding: 12px;
+      background: var(--accent); color: #fff;
+      border-radius: var(--radius-sm); font-size: 15px; font-weight: 600;
+      margin-top: 8px; transition: background .15s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .btn-login:hover { background: var(--accent-hover); }
+    .btn-login:disabled { opacity: .6; cursor: not-allowed; }
+    .login-error {
+      background: var(--red-light); border: 1px solid var(--red);
+      border-radius: var(--radius-sm); padding: 10px 14px;
+      font-size: 13px; color: var(--red); margin-bottom: 16px;
+      display: none;
+    }
+    .login-error.show { display: block; }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="login-logo">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+      </svg>
+      LinkRota
+    </div>
+
+    <div class="login-title">Iniciar sesión</div>
+    <div class="login-sub">Ingresa tus credenciales para continuar</div>
+
+    <div class="login-error" id="loginError"></div>
+
+    <form id="loginForm" autocomplete="on">
+      <div class="login-field">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" placeholder="tu@email.com" autocomplete="email" required />
+      </div>
+      <div class="login-field">
+        <label for="password">Contraseña</label>
+        <input type="password" id="password" name="password" placeholder="••••••••" autocomplete="current-password" required />
+      </div>
+      <button type="submit" class="btn-login" id="btnLogin">Entrar</button>
+    </form>
+  </div>
+
+  <script>
+    // Apply saved theme
+    const theme = localStorage.getItem('lr_theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', theme);
+
+    // If already logged in, redirect
+    if (localStorage.getItem('lr_token')) {
+      window.location.replace('/');
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const btn = document.getElementById('btnLogin');
+      const errEl = document.getElementById('loginError');
+
+      errEl.classList.remove('show');
+      btn.disabled = true;
+      btn.textContent = 'Entrando…';
+
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error al iniciar sesión');
+        localStorage.setItem('lr_token', data.token);
+        window.location.replace('/');
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.classList.add('show');
+        btn.disabled = false;
+        btn.textContent = 'Entrar';
+      }
+    });
+  </script>
+</body>
+</html>

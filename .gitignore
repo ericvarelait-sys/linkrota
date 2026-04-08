@@ -1,0 +1,4 @@
+node_modules/
+data/rotators.json
+.env
+*.log

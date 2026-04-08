@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LinkRota — Rotador de Links</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- ═══ NAVBAR ═══ -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+      </svg>
+      <span>LinkRota</span>
+    </div>
+    <div class="nav-actions">
+      <button class="btn btn-primary" id="btnNewRotator">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Nuevo Rotador
+      </button>
+      <button class="btn btn-icon btn-logout" id="btnLogout" title="Cerrar sesión">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
+      <button class="btn btn-icon" id="btnTheme" title="Cambiar tema">
+        <svg id="iconMoon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg id="iconSun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ═══ MAIN ═══ -->
+  <main class="main">
+    <!-- Stats bar -->
+    <div class="stats-bar" id="statsBar" style="display:none">
+      <div class="stat-card">
+        <span class="stat-value" id="statTotal">0</span>
+        <span class="stat-label">Rotadores</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value" id="statClicks">0</span>
+        <span class="stat-label">Clicks totales</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value" id="statLinks">0</span>
+        <span class="stat-label">Links activos</span>
+      </div>
+    </div>
+
+    <!-- Rotators grid -->
+    <div class="rotators-grid" id="rotatorsGrid"></div>
+
+    <!-- Empty state -->
+    <div class="empty-state" id="emptyState">
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.3">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+      </svg>
+      <p>No hay rotadores aún</p>
+      <span>Crea tu primer rotador de links</span>
+      <button class="btn btn-primary mt-16" id="btnNewRotatorEmpty">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Crear primer rotador
+      </button>
+    </div>
+  </main>
+
+  <!-- ═══ MODAL: Create / Edit Rotator ═══ -->
+  <div class="modal-overlay" id="modalRotator">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modalTitle">Nuevo Rotador</h2>
+        <button class="btn btn-icon" id="btnCloseModal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <input type="hidden" id="editingId" value="" />
+
+        <div class="form-group">
+          <label>Nombre del rotador</label>
+          <input type="text" id="rotatorName" placeholder="Ej: Campaña Marzo, Productos, etc." maxlength="60" />
+        </div>
+
+        <div class="form-group">
+          <label>Links <span class="label-hint">(se distribuyen en round-robin)</span></label>
+          <div id="linksList"></div>
+          <button class="btn btn-ghost btn-sm mt-8" id="btnAddLink">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Agregar link
+          </button>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="btnCancelModal">Cancelar</button>
+        <button class="btn btn-primary" id="btnSaveRotator">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ MODAL: Stats ═══ -->
+  <div class="modal-overlay" id="modalStats">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2 id="statsModalTitle">Estadísticas</h2>
+        <button class="btn btn-icon" id="btnCloseStats">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body" id="statsBody"></div>
+    </div>
+  </div>
+
+  <!-- ═══ TOAST ═══ -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="app.js" charset="utf-8"></script>
+</body>
+</html>
