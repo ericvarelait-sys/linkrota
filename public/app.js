@@ -232,8 +232,8 @@ function filterRotatorsByFolder(rotators, folderId) {
 
 function renderFolderBar() {
   const bar = document.getElementById('folderBar');
-  // Show bar when there are folders
-  bar.style.display = folders.length > 0 ? 'flex' : 'none';
+  // Show bar whenever there are rotators so the "Nueva carpeta" button is always reachable
+  bar.style.display = rotators.length > 0 ? 'flex' : 'none';
 
   // Remove previously injected dynamic tabs
   bar.querySelectorAll('.folder-tab-dyn').forEach(t => t.remove());
