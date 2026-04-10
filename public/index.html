@@ -54,6 +54,17 @@
       </div>
     </div>
 
+    <!-- Folder bar -->
+    <div class="folder-bar" id="folderBar" style="display:none">
+      <button class="folder-tab active" data-folder-id="all">Todos</button>
+      <button class="folder-tab" data-folder-id="none">Sin carpeta</button>
+      <!-- dynamic folder tabs injected by JS -->
+      <button class="btn btn-ghost btn-sm folder-manage-btn" id="btnManageFolders" title="Gestionar carpetas">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+        Nueva carpeta
+      </button>
+    </div>
+
     <!-- View controls -->
     <div class="view-controls" id="viewControls" style="display:none">
       <button class="btn-view" id="btnViewGrid" title="Vista en cuadro">
@@ -92,37 +103,101 @@
         </button>
       </div>
 
-      <div class="modal-body">
-        <input type="hidden" id="editingId" value="" />
+      <!-- PASO 1: Selector de modo (solo en creación) -->
+      <div id="stepMode" class="modal-body step-mode-body">
+        <p class="mode-picker-title">¿Cómo querés distribuir el tráfico?</p>
+        <p class="mode-picker-sub">Podés cambiarlo en cualquier momento editando el rotador.</p>
+        <div class="mode-cards">
 
-        <div class="form-group">
-          <label>Nombre del rotador</label>
-          <input type="text" id="rotatorName" placeholder="Ej: Campaña Marzo, Productos, etc." maxlength="60" />
-        </div>
-
-        <div class="form-group">
-          <label>Links <span class="label-hint">(los porcentajes deben sumar 100%)</span></label>
-          <div class="links-col-headers">
-            <span>Etiqueta</span>
-            <span>URL</span>
-            <span>%</span>
-            <span></span>
-          </div>
-          <div id="linksList"></div>
-          <div class="weight-total-row">
-            <span>Total: </span><span id="weightTotal" class="weight-total-val">0</span><span>%</span>
-          </div>
-          <button class="btn btn-ghost btn-sm mt-8" id="btnAddLink">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Agregar link
+          <button class="mode-card" id="modeCardEqual">
+            <div class="mode-card-icon">
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="5" y1="8" x2="19" y2="8"/>
+                <line x1="5" y1="16" x2="19" y2="16"/>
+              </svg>
+            </div>
+            <div class="mode-card-name">Equitativa</div>
+            <div class="mode-card-desc">
+              Cada link recibe visitas en orden.
+              <span class="mode-card-example">1 → 2 → 3 → 1 → 2 → 3…</span>
+            </div>
           </button>
+
+          <button class="mode-card" id="modeCardWeighted">
+            <div class="mode-card-icon">
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="5" x2="5" y2="19"/>
+                <circle cx="6.5" cy="6.5" r="2.5"/>
+                <circle cx="17.5" cy="17.5" r="2.5"/>
+              </svg>
+            </div>
+            <div class="mode-card-name">Por Porcentajes</div>
+            <div class="mode-card-desc">
+              Vos decidís qué % del tráfico va a cada link.
+            </div>
+          </button>
+
         </div>
       </div>
 
-      <div class="modal-footer">
-        <button class="btn btn-ghost" id="btnCancelModal">Cancelar</button>
-        <button class="btn btn-primary" id="btnSaveRotator">Guardar</button>
+      <!-- PASO 2: Formulario -->
+      <div id="stepForm">
+        <div class="modal-body">
+          <input type="hidden" id="editingId" value="" />
+
+          <!-- Toggle de modo (visible siempre en el formulario) -->
+          <div class="mode-selector-row">
+            <button class="mode-pill" id="modePillEqual">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="8" x2="19" y2="8"/><line x1="5" y1="16" x2="19" y2="16"/></svg>
+              Equitativa
+            </button>
+            <button class="mode-pill" id="modePillWeighted">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>
+              Por Porcentajes
+            </button>
+          </div>
+
+          <div class="form-group">
+            <label>Nombre del rotador</label>
+            <input type="text" id="rotatorName" placeholder="Ej: Campaña Marzo, Productos, etc." maxlength="60" />
+          </div>
+
+          <div class="form-group" id="folderSelectGroup">
+            <label>Carpeta <span class="label-hint">(opcional)</span></label>
+            <select id="rotatorFolder" class="folder-select">
+              <option value="">Sin carpeta</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>
+              Links
+              <span class="label-hint weight-only" id="weightHint"> (los % deben sumar 100)</span>
+            </label>
+            <div class="links-col-headers" id="linksColHeaders">
+              <span></span>
+              <span>Etiqueta</span>
+              <span>URL</span>
+              <span class="weight-only">%</span>
+              <span></span>
+            </div>
+            <div id="linksList"></div>
+            <div class="weight-total-row weight-only" id="weightTotalRow">
+              <span>Total: </span><span id="weightTotal" class="weight-total-val">0</span><span>%</span>
+            </div>
+            <button class="btn btn-ghost btn-sm mt-8" id="btnAddLink">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Agregar link
+            </button>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="btnCancelModal">Cancelar</button>
+          <button class="btn btn-primary" id="btnSaveRotator">Guardar</button>
+        </div>
       </div>
+
     </div>
   </div>
 
@@ -165,6 +240,34 @@
         <!-- Members list -->
         <div class="team-section-title">Miembros actuales</div>
         <div id="teamList" class="team-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ MODAL: Gestionar Carpetas ═══ -->
+  <div class="modal-overlay" id="modalFolders">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Carpetas</h2>
+        <button class="btn btn-icon" id="btnCloseFolders">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+
+        <!-- Crear nueva carpeta -->
+        <div class="folder-create-form">
+          <input type="text" id="newFolderName" placeholder="Nombre de carpeta…" maxlength="50" />
+          <select id="newFolderParent">
+            <option value="">Carpeta raíz</option>
+          </select>
+          <button class="btn btn-primary btn-sm" id="btnCreateFolder">Crear</button>
+        </div>
+
+        <!-- Lista de carpetas -->
+        <div class="folder-section-title">Carpetas existentes</div>
+        <div id="foldersList"></div>
+
       </div>
     </div>
   </div>

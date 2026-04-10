@@ -20,15 +20,44 @@ function hashPassword(password) {
 async function initDb() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS rotators (
-      id            TEXT PRIMARY KEY,
-      slug          TEXT UNIQUE NOT NULL,
-      name          TEXT NOT NULL,
-      links         JSONB NOT NULL DEFAULT '[]',
-      total_clicks  INTEGER NOT NULL DEFAULT 0,
-      current_index INTEGER NOT NULL DEFAULT 0,
-      click_history JSONB NOT NULL DEFAULT '[]',
-      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      id                TEXT PRIMARY KEY,
+      slug              TEXT UNIQUE NOT NULL,
+      name              TEXT NOT NULL,
+      links             JSONB NOT NULL DEFAULT '[]',
+      total_clicks      INTEGER NOT NULL DEFAULT 0,
+      current_index     INTEGER NOT NULL DEFAULT 0,
+      click_history     JSONB NOT NULL DEFAULT '[]',
+      distribution_mode TEXT NOT NULL DEFAULT 'weighted',
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `);
+
+  // Migrate existing rows that may lack columns
+  await pool.query(`ALTER TABLE rotators ADD COLUMN IF NOT EXISTS distribution_mode TEXT NOT NULL DEFAULT 'weighted'`);
+  await pool.query(`ALTER TABLE rotators ADD COLUMN IF NOT EXISTS folder_id TEXT`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS folders (
+      id         TEXT PRIMARY KEY,
+      name       TEXT NOT NULL,
+      parent_id  TEXT REFERENCES folders(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  // Add FK constraint on rotators.folder_id if it doesn't reference folders yet
+  // (safe to run multiple times — constraint creation is idempotent via DO block)
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'rotators_folder_id_fkey' AND table_name = 'rotators'
+      ) THEN
+        ALTER TABLE rotators
+          ADD CONSTRAINT rotators_folder_id_fkey
+          FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL;
+      END IF;
+    END $$;
   `);
 
   await pool.query(`
@@ -209,12 +238,21 @@ function generateSlug(name) {
 
 function selectWeightedIndex(links) {
   const totalWeight = links.reduce((sum, l) => sum + (l.weight || 1), 0);
-  let rand = Math.random() * totalWeight;
+  const totalClicks = links.reduce((sum, l) => sum + (l.clicks || 0), 0);
+  // Deterministic: select the link most "owed" clicks relative to its weight.
+  // deficit = expected_clicks_after_this_one - current_clicks
+  let bestIdx = 0;
+  let bestDeficit = -Infinity;
   for (let i = 0; i < links.length; i++) {
-    rand -= (links[i].weight || 1);
-    if (rand <= 0) return i;
+    const weight = links[i].weight || 1;
+    const clicks = links[i].clicks || 0;
+    const deficit = (weight / totalWeight) * (totalClicks + 1) - clicks;
+    if (deficit > bestDeficit) {
+      bestDeficit = deficit;
+      bestIdx = i;
+    }
   }
-  return links.length - 1;
+  return bestIdx;
 }
 
 function rowToRotator(row) {
@@ -226,6 +264,8 @@ function rowToRotator(row) {
     totalClicks: row.total_clicks,
     currentIndex: row.current_index,
     clickHistory: row.click_history,
+    distributionMode: row.distribution_mode || 'weighted',
+    folderId: row.folder_id || null,
     createdAt: row.created_at
   };
 }
@@ -254,7 +294,17 @@ app.get('/r/:slug', async (req, res) => {
         </body></html>`);
     }
 
-    const idx = selectWeightedIndex(links);
+    const mode = row.distribution_mode || 'weighted';
+    let idx, newCurrentIndex;
+
+    if (mode === 'equal') {
+      idx = row.current_index % links.length;
+      newCurrentIndex = row.current_index + 1;
+    } else {
+      idx = selectWeightedIndex(links);
+      newCurrentIndex = row.current_index;
+    }
+
     const target = links[idx];
 
     links[idx].clicks = (links[idx].clicks || 0) + 1;
@@ -265,8 +315,8 @@ app.get('/r/:slug', async (req, res) => {
     if (history.length > 500) history = history.slice(-500);
 
     await pool.query(
-      `UPDATE rotators SET links=$1, total_clicks=$2, click_history=$3 WHERE id=$4`,
-      [JSON.stringify(links), newTotal, JSON.stringify(history), row.id]
+      `UPDATE rotators SET links=$1, total_clicks=$2, click_history=$3, current_index=$4 WHERE id=$5`,
+      [JSON.stringify(links), newTotal, JSON.stringify(history), newCurrentIndex, row.id]
     );
 
     res.redirect(target.url);
@@ -288,11 +338,19 @@ app.get('/api/rotators', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/rotators', authMiddleware, async (req, res) => {
-  const { name, links } = req.body;
+  const { name, links, distributionMode, folderId } = req.body;
   if (!name || typeof name !== 'string' || !name.trim())
     return res.status(400).json({ error: 'Nombre requerido' });
   if (!Array.isArray(links) || links.length < 1)
     return res.status(400).json({ error: 'Se necesita al menos 1 link' });
+
+  const mode = ['equal', 'weighted'].includes(distributionMode) ? distributionMode : 'weighted';
+  const validFolderId = folderId || null;
+
+  if (validFolderId) {
+    const { rows: f } = await pool.query('SELECT id FROM folders WHERE id=$1', [validFolderId]);
+    if (!f[0]) return res.status(404).json({ error: 'Carpeta no encontrada' });
+  }
 
   const id = generateId();
   const slug = generateSlug(name.trim());
@@ -306,9 +364,9 @@ app.post('/api/rotators', authMiddleware, async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `INSERT INTO rotators (id, slug, name, links, total_clicks, current_index, click_history)
-       VALUES ($1, $2, $3, $4, 0, 0, '[]') RETURNING *`,
-      [id, slug, name.trim(), JSON.stringify(mappedLinks)]
+      `INSERT INTO rotators (id, slug, name, links, total_clicks, current_index, click_history, distribution_mode, folder_id)
+       VALUES ($1, $2, $3, $4, 0, 0, '[]', $5, $6) RETURNING *`,
+      [id, slug, name.trim(), JSON.stringify(mappedLinks), mode, validFolderId]
     );
     res.status(201).json(rowToRotator(rows[0]));
   } catch (e) {
@@ -328,12 +386,22 @@ app.get('/api/rotators/:id', authMiddleware, async (req, res) => {
 });
 
 app.put('/api/rotators/:id', authMiddleware, async (req, res) => {
-  const { name, links } = req.body;
+  const { name, links, distributionMode, folderId } = req.body;
   try {
     const { rows: existing } = await pool.query('SELECT * FROM rotators WHERE id = $1', [req.params.id]);
     if (!existing[0]) return res.status(404).json({ error: 'No encontrado' });
 
     const newName = (name && name.trim()) ? name.trim() : existing[0].name;
+    const newMode = ['equal', 'weighted'].includes(distributionMode)
+      ? distributionMode
+      : (existing[0].distribution_mode || 'weighted');
+    const newFolderId = 'folderId' in req.body ? (folderId || null) : existing[0].folder_id;
+
+    if (newFolderId) {
+      const { rows: f } = await pool.query('SELECT id FROM folders WHERE id=$1', [newFolderId]);
+      if (!f[0]) return res.status(404).json({ error: 'Carpeta no encontrada' });
+    }
+
     let newLinks = existing[0].links;
     if (Array.isArray(links)) {
       newLinks = links.map((l, i) => ({
@@ -346,8 +414,8 @@ app.put('/api/rotators/:id', authMiddleware, async (req, res) => {
     }
 
     const { rows } = await pool.query(
-      `UPDATE rotators SET name=$1, links=$2, current_index=0 WHERE id=$3 RETURNING *`,
-      [newName, JSON.stringify(newLinks), req.params.id]
+      `UPDATE rotators SET name=$1, links=$2, current_index=0, distribution_mode=$3, folder_id=$4 WHERE id=$5 RETURNING *`,
+      [newName, JSON.stringify(newLinks), newMode, newFolderId, req.params.id]
     );
     res.json(rowToRotator(rows[0]));
   } catch (e) {
@@ -379,6 +447,65 @@ app.post('/api/rotators/:id/reset', authMiddleware, async (req, res) => {
     res.json(rowToRotator(rows[0]));
   } catch (e) {
     res.status(500).json({ error: 'Error al resetear' });
+  }
+});
+
+// ─── Folders API ─────────────────────────────────────────────────────────────
+
+app.get('/api/folders', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM folders ORDER BY parent_id NULLS FIRST, name ASC'
+    );
+    res.json(rows.map(r => ({ id: r.id, name: r.name, parentId: r.parent_id })));
+  } catch (e) {
+    res.status(500).json({ error: 'Error al cargar carpetas' });
+  }
+});
+
+app.post('/api/folders', authMiddleware, async (req, res) => {
+  const { name, parentId } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Nombre requerido' });
+
+  if (parentId) {
+    const { rows } = await pool.query('SELECT parent_id FROM folders WHERE id=$1', [parentId]);
+    if (!rows[0]) return res.status(404).json({ error: 'Carpeta padre no encontrada' });
+    if (rows[0].parent_id !== null) return res.status(400).json({ error: 'Solo se permiten 2 niveles de carpetas' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      'INSERT INTO folders (id, name, parent_id) VALUES ($1, $2, $3) RETURNING *',
+      [generateId(), name.trim(), parentId || null]
+    );
+    const f = rows[0];
+    res.status(201).json({ id: f.id, name: f.name, parentId: f.parent_id });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al crear carpeta' });
+  }
+});
+
+app.put('/api/folders/:id', authMiddleware, async (req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Nombre requerido' });
+  const { rows, rowCount } = await pool.query(
+    'UPDATE folders SET name=$1 WHERE id=$2 RETURNING *',
+    [name.trim(), req.params.id]
+  );
+  if (rowCount === 0) return res.status(404).json({ error: 'Carpeta no encontrada' });
+  const f = rows[0];
+  res.json({ id: f.id, name: f.name, parentId: f.parent_id });
+});
+
+app.delete('/api/folders/:id', authMiddleware, async (req, res) => {
+  try {
+    // ON DELETE CASCADE removes subfolders; ON DELETE SET NULL frees rotators automatically
+    const { rowCount } = await pool.query('DELETE FROM folders WHERE id=$1', [req.params.id]);
+    if (rowCount === 0) return res.status(404).json({ error: 'Carpeta no encontrada' });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al eliminar carpeta' });
   }
 });
 

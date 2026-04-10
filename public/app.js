@@ -3,8 +3,12 @@
    ════════════════════════════════════════════════════════ */
 
 let rotators = [];
+let folders = [];
 let currentStatsId = null;
 let currentView = localStorage.getItem('lr_view') || 'grid';
+let currentMode = 'weighted'; // 'equal' | 'weighted'
+let currentFolderId = 'all';  // 'all' | 'none' | '<folder-id>'
+let dragSrcRow = null;
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -58,6 +62,66 @@ function bindEvents() {
   document.getElementById('btnAddMember').onclick = addMember;
   document.getElementById('btnViewGrid').onclick = () => setView('grid');
   document.getElementById('btnViewList').onclick = () => setView('list');
+
+  // Mode picker (step 1)
+  document.getElementById('modeCardEqual').onclick = () => selectMode('equal');
+  document.getElementById('modeCardWeighted').onclick = () => selectMode('weighted');
+
+  // Mode toggle pills (step 2)
+  document.getElementById('modePillEqual').onclick = () => setCurrentMode('equal');
+  document.getElementById('modePillWeighted').onclick = () => setCurrentMode('weighted');
+
+  // Folder management
+  document.getElementById('btnManageFolders').onclick = openFolderModal;
+  document.getElementById('btnCloseFolders').onclick = closeFolderModal;
+  document.getElementById('btnCreateFolder').onclick = createFolder;
+  document.getElementById('modalFolders').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeFolderModal();
+  });
+  document.getElementById('newFolderName').addEventListener('keydown', e => {
+    if (e.key === 'Enter') createFolder();
+  });
+
+  // Drag-and-drop for link rows (event delegation on the list container)
+  const linksList = document.getElementById('linksList');
+  linksList.addEventListener('dragstart', e => {
+    const row = e.target.closest('.link-row');
+    if (!row) return;
+    dragSrcRow = row;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', ''); // required for Firefox
+    requestAnimationFrame(() => row.classList.add('dragging'));
+  });
+  linksList.addEventListener('dragend', () => {
+    document.querySelectorAll('.link-row').forEach(r => r.classList.remove('dragging', 'drag-over'));
+    dragSrcRow = null;
+  });
+  linksList.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const row = e.target.closest('.link-row');
+    if (!row || row === dragSrcRow) return;
+    document.querySelectorAll('.link-row.drag-over').forEach(r => r.classList.remove('drag-over'));
+    row.classList.add('drag-over');
+  });
+  linksList.addEventListener('dragleave', e => {
+    const row = e.target.closest('.link-row');
+    if (row && !row.contains(e.relatedTarget)) row.classList.remove('drag-over');
+  });
+  linksList.addEventListener('drop', e => {
+    e.preventDefault();
+    const targetRow = e.target.closest('.link-row');
+    if (!targetRow || targetRow === dragSrcRow || !dragSrcRow) return;
+    const rect = targetRow.getBoundingClientRect();
+    if (e.clientY < rect.top + rect.height / 2) {
+      linksList.insertBefore(dragSrcRow, targetRow);
+    } else {
+      linksList.insertBefore(dragSrcRow, targetRow.nextSibling);
+    }
+    document.querySelectorAll('.link-row.drag-over').forEach(r => r.classList.remove('drag-over'));
+    updateWeightTotal();
+  });
+
   document.getElementById('modalTeam').addEventListener('click', e => {
     if (e.target === e.currentTarget) closeTeamModal();
   });
@@ -102,7 +166,10 @@ async function api(method, path, body) {
 
 async function loadRotators() {
   try {
-    rotators = await api('GET', '/api/rotators');
+    [rotators, folders] = await Promise.all([
+      api('GET', '/api/rotators'),
+      api('GET', '/api/folders')
+    ]);
     renderAll();
   } catch (e) {
     toast('Error cargando datos', 'error');
@@ -113,8 +180,9 @@ function renderAll() {
   const grid = document.getElementById('rotatorsGrid');
   const empty = document.getElementById('emptyState');
   const statsBar = document.getElementById('statsBar');
-
   const viewControls = document.getElementById('viewControls');
+
+  renderFolderBar();
 
   if (rotators.length === 0) {
     grid.innerHTML = '';
@@ -130,15 +198,23 @@ function renderAll() {
   document.getElementById('btnViewGrid').classList.toggle('active', currentView === 'grid');
   document.getElementById('btnViewList').classList.toggle('active', currentView === 'list');
 
-  // Global stats
+  // Global stats (always all rotators)
   const totalClicks = rotators.reduce((a, r) => a + (r.totalClicks || 0), 0);
   const totalLinks = rotators.reduce((a, r) => a + (r.links?.length || 0), 0);
   document.getElementById('statTotal').textContent = rotators.length;
   document.getElementById('statClicks').textContent = totalClicks.toLocaleString();
   document.getElementById('statLinks').textContent = totalLinks;
 
+  // Apply folder filter
+  const filtered = filterRotatorsByFolder(rotators, currentFolderId);
+
   grid.className = currentView === 'list' ? 'rotators-list' : 'rotators-grid';
-  grid.innerHTML = rotators.map(currentView === 'list' ? renderRow : renderCard).join('');
+
+  if (filtered.length === 0) {
+    grid.innerHTML = `<div class="folder-empty">No hay rotadores en esta vista.</div>`;
+  } else {
+    grid.innerHTML = filtered.map(currentView === 'list' ? renderRow : renderCard).join('');
+  }
 
   // Bind card/row buttons
   grid.querySelectorAll('[data-action]').forEach(el => {
@@ -146,18 +222,78 @@ function renderAll() {
   });
 }
 
+function filterRotatorsByFolder(rotators, folderId) {
+  if (folderId === 'all')  return rotators;
+  if (folderId === 'none') return rotators.filter(r => !r.folderId);
+  // Include direct members + members of subfolders
+  const subIds = folders.filter(f => f.parentId === folderId).map(f => f.id);
+  return rotators.filter(r => r.folderId === folderId || subIds.includes(r.folderId));
+}
+
+function renderFolderBar() {
+  const bar = document.getElementById('folderBar');
+  // Show bar when there are folders
+  bar.style.display = folders.length > 0 ? 'flex' : 'none';
+
+  // Remove previously injected dynamic tabs
+  bar.querySelectorAll('.folder-tab-dyn').forEach(t => t.remove());
+
+  // Re-inject root folder tabs after the "Sin carpeta" tab
+  const noneTab = bar.querySelector('[data-folder-id="none"]');
+  const rootFolders = folders.filter(f => !f.parentId);
+  rootFolders.forEach(f => {
+    const btn = document.createElement('button');
+    btn.className = 'folder-tab folder-tab-dyn';
+    btn.dataset.folderId = f.id;
+    btn.textContent = f.name;
+    noneTab.insertAdjacentElement('afterend', btn);
+  });
+
+  // Subfolders: inject below their parent if parent is selected
+  if (currentFolderId !== 'all' && currentFolderId !== 'none') {
+    const parentFolder = folders.find(f => f.id === currentFolderId && !f.parentId);
+    if (parentFolder) {
+      const subs = folders.filter(f => f.parentId === currentFolderId);
+      const parentTab = bar.querySelector(`[data-folder-id="${currentFolderId}"]`);
+      if (parentTab && subs.length > 0) {
+        subs.forEach(sub => {
+          const btn = document.createElement('button');
+          btn.className = 'folder-tab folder-tab-dyn folder-tab-sub';
+          btn.dataset.folderId = sub.id;
+          btn.textContent = '↳ ' + sub.name;
+          parentTab.insertAdjacentElement('afterend', btn);
+        });
+      }
+    }
+  }
+
+  // Sync active state + bind click
+  bar.querySelectorAll('.folder-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.folderId === currentFolderId);
+    tab.onclick = () => selectFolder(tab.dataset.folderId);
+  });
+}
+
+function selectFolder(folderId) {
+  currentFolderId = folderId;
+  renderAll();
+}
+
 function renderCard(r) {
   const rotatorUrl = `${window.location.origin}/r/${r.slug}`;
   const linkCount = r.links?.length || 0;
   const createdDate = new Date(r.createdAt).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' });
+  const isEqual = r.distributionMode === 'equal';
 
   const totalWeight = (r.links || []).reduce((sum, l) => sum + (l.weight || 1), 0);
   const linksPreview = (r.links || []).slice(0, 4).map(l => {
-    const effectivePct = totalWeight > 0 ? Math.round(((l.weight || 1) / totalWeight) * 100) : 0;
+    const pctDisplay = isEqual
+      ? '&nbsp;=&nbsp;'
+      : `${totalWeight > 0 ? Math.round(((l.weight || 1) / totalWeight) * 100) : 0}%`;
     return `
     <div class="link-preview-item">
       <span class="link-preview-label" title="${escHtml(l.url)}">${escHtml(l.label)}</span>
-      <span class="link-preview-pct">${effectivePct}%</span>
+      <span class="link-preview-pct">${pctDisplay}</span>
       <span class="link-preview-clicks">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m3 12 9-9 9 9"/><path d="m3 12 9 9 9-9"/></svg>
         ${(l.clicks || 0).toLocaleString()}
@@ -173,7 +309,10 @@ function renderCard(r) {
       <div class="card-header">
         <div>
           <div class="card-title">${escHtml(r.name)}</div>
-          <div class="card-meta">${linkCount} link${linkCount !== 1 ? 's' : ''} · Creado ${createdDate}</div>
+          <div class="card-meta">
+            ${linkCount} link${linkCount !== 1 ? 's' : ''} · ${createdDate}
+            <span class="mode-badge ${isEqual ? 'equal' : 'weighted'}">${isEqual ? 'Equitativa' : '% Pesado'}</span>
+          </div>
         </div>
         <div class="card-actions">
           <button class="btn btn-icon" data-action="stats" data-id="${r.id}" title="Estadísticas">
@@ -216,12 +355,16 @@ function renderRow(r) {
   const rotatorUrl = `${window.location.origin}/r/${r.slug}`;
   const linkCount = r.links?.length || 0;
   const createdDate = new Date(r.createdAt).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' });
+  const isEqual = r.distributionMode === 'equal';
 
   return `
     <div class="rotator-row" data-id="${r.id}">
       <div class="row-name">
         <div class="row-title">${escHtml(r.name)}</div>
-        <div class="row-meta">${linkCount} link${linkCount !== 1 ? 's' : ''} · ${createdDate}</div>
+        <div class="row-meta">
+          ${linkCount} link${linkCount !== 1 ? 's' : ''} · ${createdDate}
+          <span class="mode-badge ${isEqual ? 'equal' : 'weighted'}">${isEqual ? 'Equitativa' : '% Pesado'}</span>
+        </div>
       </div>
       <div class="row-url">
         <div class="card-url" title="${rotatorUrl}">${rotatorUrl}</div>
@@ -272,24 +415,67 @@ function openCreateModal() {
   document.getElementById('modalTitle').textContent = 'Nuevo Rotador';
   document.getElementById('rotatorName').value = '';
   document.getElementById('linksList').innerHTML = '';
-  addLinkRow();
-  addLinkRow();
+  populateFolderSelect(null);
+
+  // Show step 1 (mode picker), hide step 2 (form)
+  document.getElementById('stepMode').style.display = '';
+  document.getElementById('stepForm').style.display = 'none';
+
   document.getElementById('modalRotator').classList.add('open');
+}
+
+function selectMode(mode) {
+  currentMode = mode;
+  // Transition to step 2
+  document.getElementById('stepMode').style.display = 'none';
+  document.getElementById('stepForm').style.display = '';
+
+  // Add default rows if none yet
+  if (document.getElementById('linksList').children.length === 0) {
+    addLinkRow();
+    addLinkRow();
+  }
+
+  updateModeUI();
   setTimeout(() => document.getElementById('rotatorName').focus(), 80);
+}
+
+function setCurrentMode(mode) {
+  currentMode = mode;
+  updateModeUI();
+}
+
+function updateModeUI() {
+  const stepForm = document.getElementById('stepForm');
+  stepForm.classList.toggle('mode-equal', currentMode === 'equal');
+  stepForm.classList.toggle('mode-weighted', currentMode === 'weighted');
+
+  document.getElementById('modePillEqual').classList.toggle('active', currentMode === 'equal');
+  document.getElementById('modePillWeighted').classList.toggle('active', currentMode === 'weighted');
+
+  updateWeightTotal();
 }
 
 function openEditModal(id) {
   const r = rotators.find(x => x.id === id);
   if (!r) return;
 
+  currentMode = r.distributionMode || 'weighted';
+
   document.getElementById('editingId').value = id;
   document.getElementById('modalTitle').textContent = 'Editar Rotador';
   document.getElementById('rotatorName').value = r.name;
+  populateFolderSelect(r.folderId);
+
+  // Skip step 1, go directly to form
+  document.getElementById('stepMode').style.display = 'none';
+  document.getElementById('stepForm').style.display = '';
 
   const list = document.getElementById('linksList');
   list.innerHTML = '';
   r.links.forEach(l => addLinkRow(l.label, l.url, l.id, l.clicks, l.weight || 1));
 
+  updateModeUI();
   document.getElementById('modalRotator').classList.add('open');
   setTimeout(() => document.getElementById('rotatorName').focus(), 80);
 }
@@ -302,12 +488,20 @@ function addLinkRow(label = '', url = '', lid = '', clicks = 0, weight = 1) {
   const list = document.getElementById('linksList');
   const row = document.createElement('div');
   row.className = 'link-row';
+  row.draggable = true;
   row.dataset.lid = lid;
   row.dataset.clicks = clicks;
   row.innerHTML = `
+    <span class="drag-handle" title="Arrastrar para reordenar">
+      <svg width="14" height="14" viewBox="0 0 10 16" fill="currentColor">
+        <circle cx="3" cy="2" r="1.5"/><circle cx="7" cy="2" r="1.5"/>
+        <circle cx="3" cy="8" r="1.5"/><circle cx="7" cy="8" r="1.5"/>
+        <circle cx="3" cy="14" r="1.5"/><circle cx="7" cy="14" r="1.5"/>
+      </svg>
+    </span>
     <input type="text" placeholder="Etiqueta" value="${escHtml(label)}" class="link-label" maxlength="40" />
     <input type="url" placeholder="https://..." value="${escHtml(url)}" class="link-url" />
-    <input type="number" min="1" max="100" value="${weight}" class="link-weight" title="Porcentaje de tráfico para este link" />
+    <input type="number" min="1" max="100" value="${weight}" class="link-weight" title="Porcentaje de tráfico" />
     <button class="btn-remove-link" title="Eliminar link">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
@@ -338,7 +532,6 @@ async function saveRotator() {
 
     if (!url) { urlInput.focus(); hasError = true; return; }
 
-    // Auto-add https if missing
     const normalized = url.startsWith('http') ? url : 'https://' + url;
 
     links.push({
@@ -358,11 +551,13 @@ async function saveRotator() {
   btn.textContent = 'Guardando…';
 
   try {
+    const folderId = document.getElementById('rotatorFolder').value || null;
+    const payload = { name, links, distributionMode: currentMode, folderId };
     if (editingId) {
-      await api('PUT', `/api/rotators/${editingId}`, { name, links });
+      await api('PUT', `/api/rotators/${editingId}`, payload);
       toast('Rotador actualizado', 'success');
     } else {
-      await api('POST', '/api/rotators', { name, links });
+      await api('POST', '/api/rotators', payload);
       toast('Rotador creado', 'success');
     }
     closeModal();
@@ -413,6 +608,7 @@ function renderStats(r) {
   const total = r.totalClicks || 0;
   const linkCount = r.links?.length || 0;
   const rotatorUrl = `${window.location.origin}/r/${r.slug}`;
+  const isEqual = r.distributionMode === 'equal';
 
   const avg = linkCount > 0 ? (total / linkCount).toFixed(1) : '0';
 
@@ -423,14 +619,16 @@ function renderStats(r) {
     .sort((a, b) => (b.clicks || 0) - (a.clicks || 0))
     .map(l => {
       const actualPct = total > 0 ? Math.round(((l.clicks || 0) / total) * 100) : 0;
-      const configPct = totalWeight > 0 ? Math.round(((l.weight || 1) / totalWeight) * 100) : 0;
+      const configPct = isEqual
+        ? `<span style="color:var(--text3)">—</span>`
+        : `<span style="color:var(--accent);font-weight:600">${totalWeight > 0 ? Math.round(((l.weight || 1) / totalWeight) * 100) : 0}%</span>`;
       return `
         <tr>
           <td>
             <div style="font-weight:500">${escHtml(l.label)}</div>
             <a href="${escHtml(l.url)}" target="_blank" class="stats-url" title="${escHtml(l.url)}">${escHtml(l.url)}</a>
           </td>
-          <td style="color:var(--accent);font-weight:600">${configPct}%</td>
+          <td>${configPct}</td>
           <td style="font-weight:700;color:var(--text)">${(l.clicks || 0).toLocaleString()}</td>
           <td style="color:var(--text2)">${actualPct}%</td>
           <td>
@@ -468,6 +666,10 @@ function renderStats(r) {
         <div class="stats-mini-val">${avg}</div>
         <div class="stats-mini-label">Promedio por link</div>
       </div>
+      <div class="stats-mini-card">
+        <div class="stats-mini-val" style="font-size:14px">${isEqual ? 'Equitativa' : 'Por %'}</div>
+        <div class="stats-mini-label">Distribución</div>
+      </div>
     </div>
 
     <div class="stats-section-title">URL del rotador</div>
@@ -485,7 +687,7 @@ function renderStats(r) {
         <thead>
           <tr>
             <th>Link</th>
-            <th>Peso cfg.</th>
+            <th>${isEqual ? 'Config.' : 'Peso cfg.'}</th>
             <th>Clicks</th>
             <th>% real</th>
             <th>Distribución</th>
@@ -567,6 +769,7 @@ function toggleTheme() {
 }
 
 function updateWeightTotal() {
+  if (currentMode !== 'weighted') return;
   const inputs = document.querySelectorAll('#linksList .link-weight');
   const sum = Array.from(inputs).reduce((acc, el) => acc + (parseInt(el.value) || 0), 0);
   const el = document.getElementById('weightTotal');
@@ -669,6 +872,157 @@ async function deleteMember(id, email) {
     await api('DELETE', `/api/users/${id}`);
     toast('Miembro eliminado', 'info');
     await loadTeamMembers();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+// ─── Folder Management ────────────────────────────────────────────────────────
+
+function populateFolderSelect(selectedFolderId) {
+  const sel = document.getElementById('rotatorFolder');
+  const rootFolders = folders.filter(f => !f.parentId);
+  let options = '<option value="">Sin carpeta</option>';
+  rootFolders.forEach(root => {
+    options += `<option value="${root.id}" ${selectedFolderId === root.id ? 'selected' : ''}>${escHtml(root.name)}</option>`;
+    folders.filter(f => f.parentId === root.id).forEach(sub => {
+      options += `<option value="${sub.id}" ${selectedFolderId === sub.id ? 'selected' : ''}>\u00a0\u00a0↳ ${escHtml(sub.name)}</option>`;
+    });
+  });
+  sel.innerHTML = options;
+  // Show folder dropdown only if folders exist
+  document.getElementById('folderSelectGroup').style.display = folders.length > 0 ? '' : 'none';
+}
+
+async function openFolderModal() {
+  document.getElementById('newFolderName').value = '';
+  renderFoldersList();
+  document.getElementById('modalFolders').classList.add('open');
+  setTimeout(() => document.getElementById('newFolderName').focus(), 80);
+}
+
+function closeFolderModal() {
+  document.getElementById('modalFolders').classList.remove('open');
+}
+
+function renderFoldersList() {
+  const rootFolders = folders.filter(f => !f.parentId);
+
+  // Rebuild parent select
+  const parentSel = document.getElementById('newFolderParent');
+  parentSel.innerHTML = '<option value="">Carpeta raíz</option>' +
+    rootFolders.map(f => `<option value="${f.id}">${escHtml(f.name)}</option>`).join('');
+
+  const container = document.getElementById('foldersList');
+  if (rootFolders.length === 0) {
+    container.innerHTML = '<p class="folders-empty">No hay carpetas aún. ¡Crea la primera arriba!</p>';
+    return;
+  }
+
+  container.innerHTML = rootFolders.map(root => {
+    const subs = folders.filter(f => f.parentId === root.id);
+    const subsHTML = subs.map(sub => `
+      <div class="folder-item folder-item-sub">
+        <span class="folder-item-name">↳ ${escHtml(sub.name)}</span>
+        <div class="folder-item-actions">
+          <button class="btn btn-icon btn-sm" onclick="renameFolderPrompt('${sub.id}','${escHtml(sub.name).replace(/'/g,"\\'")}')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
+          <button class="btn btn-icon btn-danger btn-sm" onclick="deleteFolder('${sub.id}')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+          </button>
+        </div>
+      </div>
+    `).join('');
+
+    const rotatorCount = rotators.filter(r => r.folderId === root.id).length;
+    const subCount = subs.length;
+    const meta = [
+      rotatorCount ? `${rotatorCount} rotador${rotatorCount !== 1 ? 'es' : ''}` : '',
+      subCount ? `${subCount} subcarpeta${subCount !== 1 ? 's' : ''}` : ''
+    ].filter(Boolean).join(' · ');
+
+    return `
+      <div class="folder-item">
+        <div>
+          <div class="folder-item-name">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            ${escHtml(root.name)}
+          </div>
+          ${meta ? `<div class="folder-item-meta">${meta}</div>` : ''}
+        </div>
+        <div class="folder-item-actions">
+          <button class="btn btn-icon btn-sm" onclick="renameFolderPrompt('${root.id}','${escHtml(root.name).replace(/'/g,"\\'")}')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
+          <button class="btn btn-icon btn-danger btn-sm" onclick="deleteFolder('${root.id}')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+          </button>
+        </div>
+      </div>
+      ${subsHTML}
+    `;
+  }).join('');
+}
+
+async function createFolder() {
+  const name = document.getElementById('newFolderName').value.trim();
+  const parentId = document.getElementById('newFolderParent').value || null;
+  if (!name) { toast('Escribe un nombre para la carpeta', 'error'); return; }
+
+  const btn = document.getElementById('btnCreateFolder');
+  btn.disabled = true;
+  try {
+    const folder = await api('POST', '/api/folders', { name, parentId });
+    folders.push(folder);
+    document.getElementById('newFolderName').value = '';
+    renderFoldersList();
+    renderFolderBar();
+    toast('Carpeta creada', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function renameFolderPrompt(id, currentName) {
+  const name = prompt('Nuevo nombre para la carpeta:', currentName);
+  if (!name || name.trim() === currentName) return;
+  try {
+    const updated = await api('PUT', `/api/folders/${id}`, { name: name.trim() });
+    const idx = folders.findIndex(f => f.id === id);
+    if (idx !== -1) folders[idx] = updated;
+    renderFoldersList();
+    renderFolderBar();
+    renderAll();
+    toast('Carpeta renombrada', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function deleteFolder(id) {
+  const folder = folders.find(f => f.id === id);
+  if (!folder) return;
+  const subIds = folders.filter(f => f.parentId === id).map(f => f.id);
+  const affectedRotators = rotators.filter(r => r.folderId === id || subIds.includes(r.folderId)).length;
+  let msg = `¿Eliminar la carpeta "${folder.name}"?`;
+  if (subIds.length > 0) msg += `\nSe eliminarán ${subIds.length} subcarpeta(s).`;
+  if (affectedRotators > 0) msg += `\n${affectedRotators} rotador(es) quedarán sin carpeta.`;
+  if (!confirm(msg)) return;
+
+  try {
+    await api('DELETE', `/api/folders/${id}`);
+    // Update local state
+    folders = folders.filter(f => f.id !== id && !subIds.includes(f.id));
+    rotators.forEach(r => {
+      if (r.folderId === id || subIds.includes(r.folderId)) r.folderId = null;
+    });
+    if (currentFolderId === id || subIds.includes(currentFolderId)) currentFolderId = 'all';
+    renderFoldersList();
+    renderAll();
+    toast('Carpeta eliminada', 'info');
   } catch (e) {
     toast(e.message, 'error');
   }
