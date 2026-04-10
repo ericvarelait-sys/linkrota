@@ -32,9 +32,14 @@ async function initDb() {
     )
   `);
 
-  // Migrate existing rows that may lack columns
-  await pool.query(`ALTER TABLE rotators ADD COLUMN IF NOT EXISTS distribution_mode TEXT NOT NULL DEFAULT 'weighted'`);
-  await pool.query(`ALTER TABLE rotators ADD COLUMN IF NOT EXISTS folder_id TEXT`);
+  // Idempotent migrations — each wrapped so one failure doesn't abort startup
+  const migrations = [
+    `ALTER TABLE rotators ADD COLUMN IF NOT EXISTS distribution_mode TEXT NOT NULL DEFAULT 'weighted'`,
+    `ALTER TABLE rotators ADD COLUMN IF NOT EXISTS folder_id TEXT`
+  ];
+  for (const sql of migrations) {
+    try { await pool.query(sql); } catch (e) { console.warn('Migration skipped:', e.message); }
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS folders (
@@ -43,21 +48,6 @@ async function initDb() {
       parent_id  TEXT REFERENCES folders(id) ON DELETE CASCADE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
-  `);
-
-  // Add FK constraint on rotators.folder_id if it doesn't reference folders yet
-  // (safe to run multiple times — constraint creation is idempotent via DO block)
-  await pool.query(`
-    DO $$ BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.table_constraints
-        WHERE constraint_name = 'rotators_folder_id_fkey' AND table_name = 'rotators'
-      ) THEN
-        ALTER TABLE rotators
-          ADD CONSTRAINT rotators_folder_id_fkey
-          FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL;
-      END IF;
-    END $$;
   `);
 
   await pool.query(`
@@ -499,9 +489,20 @@ app.put('/api/folders/:id', authMiddleware, async (req, res) => {
 
 app.delete('/api/folders/:id', authMiddleware, async (req, res) => {
   try {
-    // ON DELETE CASCADE removes subfolders; ON DELETE SET NULL frees rotators automatically
-    const { rowCount } = await pool.query('DELETE FROM folders WHERE id=$1', [req.params.id]);
-    if (rowCount === 0) return res.status(404).json({ error: 'Carpeta no encontrada' });
+    const { rows: existing } = await pool.query('SELECT id FROM folders WHERE id=$1', [req.params.id]);
+    if (!existing[0]) return res.status(404).json({ error: 'Carpeta no encontrada' });
+
+    // Get subfolder IDs before cascade-deleting them
+    const { rows: subs } = await pool.query('SELECT id FROM folders WHERE parent_id=$1', [req.params.id]);
+    const allIds = [req.params.id, ...subs.map(s => s.id)];
+
+    // Null out folder_id on rotators (no FK constraint to do this automatically)
+    for (const fid of allIds) {
+      await pool.query('UPDATE rotators SET folder_id = NULL WHERE folder_id = $1', [fid]);
+    }
+
+    // Delete folder (subfolders cascade via folders.parent_id FK)
+    await pool.query('DELETE FROM folders WHERE id=$1', [req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
