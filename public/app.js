@@ -192,9 +192,6 @@ function renderAll() {
 
   empty.style.display = 'none';
   statsBar.style.display = 'flex';
-  viewControls.style.display = 'flex';
-  document.getElementById('btnViewGrid').classList.toggle('active', currentView === 'grid');
-  document.getElementById('btnViewList').classList.toggle('active', currentView === 'list');
 
   // Global stats (always all rotators)
   const totalClicks = rotators.reduce((a, r) => a + (r.totalClicks || 0), 0);
@@ -203,13 +200,28 @@ function renderAll() {
   document.getElementById('statClicks').textContent = totalClicks.toLocaleString();
   document.getElementById('statLinks').textContent = totalLinks;
 
+  // Folder home: show folder tiles when 'all' and folders exist
+  if (currentFolderId === 'all' && folders.length > 0) {
+    viewControls.style.display = 'none';
+    grid.className = 'rotators-grid';
+    grid.innerHTML = renderFolderHome();
+    grid.querySelectorAll('.folder-tile').forEach(tile => {
+      tile.addEventListener('click', () => selectFolder(tile.dataset.folderId));
+    });
+    return;
+  }
+
+  viewControls.style.display = 'flex';
+  document.getElementById('btnViewGrid').classList.toggle('active', currentView === 'grid');
+  document.getElementById('btnViewList').classList.toggle('active', currentView === 'list');
+
   // Apply folder filter
   const filtered = filterRotatorsByFolder(rotators, currentFolderId);
 
   grid.className = currentView === 'list' ? 'rotators-list' : 'rotators-grid';
 
   if (filtered.length === 0) {
-    grid.innerHTML = `<div class="folder-empty">No hay rotadores en esta vista.</div>`;
+    grid.innerHTML = `<div class="folder-empty">No hay rotadores en esta carpeta todavía.</div>`;
   } else {
     grid.innerHTML = filtered.map(currentView === 'list' ? renderRow : renderCard).join('');
   }
@@ -227,6 +239,34 @@ function renderAll() {
   });
 }
 
+function renderFolderHome() {
+  const tiles = folders.map(f => {
+    const count = rotators.filter(r => String(r.folderId) === String(f.id)).length;
+    return `
+      <div class="folder-tile" data-folder-id="${f.id}">
+        <div class="folder-tile-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <div class="folder-tile-name">${escHtml(f.name)}</div>
+        <div class="folder-tile-count">${count} rotador${count !== 1 ? 'es' : ''}</div>
+      </div>
+    `;
+  }).join('');
+
+  const uncat = rotators.filter(r => !r.folderId).length;
+  const uncatTile = uncat > 0 ? `
+    <div class="folder-tile folder-tile-uncat" data-folder-id="none">
+      <div class="folder-tile-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      </div>
+      <div class="folder-tile-name">Sin carpeta</div>
+      <div class="folder-tile-count">${uncat} rotador${uncat !== 1 ? 'es' : ''}</div>
+    </div>
+  ` : '';
+
+  return tiles + uncatTile;
+}
+
 function filterRotatorsByFolder(rotators, folderId) {
   if (folderId === 'all')  return rotators;
   if (folderId === 'none') return rotators.filter(r => !r.folderId);
@@ -237,44 +277,40 @@ function renderFolderBar() {
   const bar = document.getElementById('folderBar');
   bar.style.display = rotators.length > 0 ? 'flex' : 'none';
 
-  // Remove previously injected dynamic tab wrappers
-  bar.querySelectorAll('.folder-tab-wrap').forEach(t => t.remove());
+  // Remove previously injected dynamic tabs
+  bar.querySelectorAll('.folder-tab-dyn').forEach(t => t.remove());
 
   // Flat folder tabs — inject before the inline-create div
+  // Actions are INSIDE the button so hover never loses focus crossing a gap
   const insertBefore = document.getElementById('folderInlineCreate');
   folders.forEach(f => {
-    const wrap = document.createElement('div');
-    wrap.className = 'folder-tab-wrap';
-
     const btn = document.createElement('button');
-    btn.className = 'folder-tab';
+    btn.className = 'folder-tab folder-tab-dyn';
     btn.dataset.folderId = f.id;
-    btn.textContent = f.name;
     btn.classList.toggle('active', String(f.id) === String(currentFolderId));
-    btn.onclick = () => selectFolder(f.id);
-
-    const actions = document.createElement('div');
-    actions.className = 'folder-tab-actions';
-    actions.innerHTML = `
-      <button class="folder-tab-btn-rename" title="Renombrar">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-      </button>
-      <button class="folder-tab-btn-delete" title="Eliminar">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
+    btn.innerHTML = `
+      <span class="folder-tab-label">${escHtml(f.name)}</span>
+      <span class="folder-tab-actions">
+        <span class="folder-tab-btn-rename" title="Renombrar">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </span>
+        <span class="folder-tab-btn-delete" title="Eliminar">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </span>
+      </span>
     `;
-    actions.querySelector('.folder-tab-btn-rename').onclick = e => {
+    btn.addEventListener('click', e => {
+      if (!e.target.closest('.folder-tab-actions')) selectFolder(f.id);
+    });
+    btn.querySelector('.folder-tab-btn-rename').addEventListener('click', e => {
       e.stopPropagation();
       startInlineRename(f.id, f.name, btn);
-    };
-    actions.querySelector('.folder-tab-btn-delete').onclick = e => {
+    });
+    btn.querySelector('.folder-tab-btn-delete').addEventListener('click', e => {
       e.stopPropagation();
       deleteFolder(f.id);
-    };
-
-    wrap.appendChild(btn);
-    wrap.appendChild(actions);
-    insertBefore.insertAdjacentElement('beforebegin', wrap);
+    });
+    insertBefore.insertAdjacentElement('beforebegin', btn);
   });
 
   // Sync static tabs
@@ -955,7 +991,7 @@ async function createFolderInline() {
 function startInlineRename(id, currentName, tabBtn) {
   const input = document.createElement('input');
   input.type = 'text';
-  input.className = 'folder-tab folder-tab-rename-input';
+  input.className = 'folder-tab folder-tab-rename-input folder-tab-dyn'; // folder-tab-dyn ensures cleanup on re-render
   input.value = currentName;
   input.maxLength = 50;
 
