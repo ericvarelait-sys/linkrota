@@ -420,53 +420,85 @@ input, textarea { font-family: inherit; }
 .folder-tab.active {
   color: var(--accent); background: var(--accent-light); border-color: var(--accent);
 }
-.folder-tab-sub { font-size: 12px; padding: 4px 12px; }
-.folder-manage-btn { margin-left: auto; flex-shrink: 0; white-space: nowrap; }
+.folder-add-btn { margin-left: auto; flex-shrink: 0; white-space: nowrap; }
 .folder-empty {
   grid-column: 1 / -1; text-align: center; color: var(--text3);
   padding: 40px 0; font-size: 14px;
 }
 
-/* ═══ FOLDER MANAGEMENT MODAL ═══ */
-.folder-create-form {
-  display: flex; gap: 8px; align-items: center; margin-bottom: 20px;
-  padding: 14px 16px; background: var(--bg3); border: 1px solid var(--border);
-  border-radius: var(--radius);
+/* ═══ FOLDER TAB WRAPPER (hover actions) ═══ */
+.folder-tab-wrap {
+  position: relative; display: flex; align-items: center; flex-shrink: 0;
 }
-.folder-create-form input[type="text"] {
-  flex: 1; background: var(--bg2); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); padding: 9px 12px;
-  font-size: 14px; color: var(--text); outline: none; font-family: inherit;
-  transition: border-color .15s;
+.folder-tab-actions {
+  display: none;
+  position: absolute; left: 50%; top: calc(100% + 6px); transform: translateX(-50%);
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 4px; gap: 2px; align-items: center;
+  z-index: 20; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  white-space: nowrap;
 }
-.folder-create-form input:focus { border-color: var(--accent); }
-.folder-create-form input::placeholder { color: var(--text3); }
-.folder-create-form select {
-  background: var(--bg2); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); padding: 9px 10px;
-  font-size: 13px; color: var(--text); font-family: inherit; outline: none;
-  transition: border-color .15s;
+.folder-tab-wrap:hover .folder-tab-actions { display: flex; }
+.folder-tab-btn-rename,
+.folder-tab-btn-delete {
+  width: 26px; height: 26px; border-radius: 6px; border: none;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--text2); transition: background .15s, color .15s;
 }
-.folder-create-form select:focus { border-color: var(--accent); }
-.folder-create-form select option { background: var(--bg2); }
+.folder-tab-btn-rename:hover { background: var(--bg3); color: var(--text); }
+.folder-tab-btn-delete:hover { background: rgba(239,68,68,0.12); color: var(--red, #ef4444); }
+.folder-tab-rename-input {
+  padding: 5px 10px; border-radius: 99px; font-size: 13px; font-weight: 500;
+  border: 1px solid var(--accent); background: var(--bg3);
+  color: var(--text); outline: none; width: 130px;
+}
 
-.folder-section-title {
-  font-size: 12px; font-weight: 600; color: var(--text3);
-  text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px;
+/* ═══ INLINE FOLDER CREATION (in bar) ═══ */
+.folder-inline-create {
+  display: flex; align-items: center; gap: 4px; flex-shrink: 0;
 }
-.folder-item {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 11px 14px; border-radius: var(--radius-sm);
-  background: var(--bg3); border: 1px solid var(--border); margin-bottom: 6px;
+.folder-inline-create input {
+  padding: 5px 12px; border-radius: 99px; font-size: 13px;
+  border: 1px solid var(--accent); background: var(--bg3);
+  color: var(--text); outline: none; width: 170px; font-family: inherit;
+  transition: border-color .15s;
 }
-.folder-item-sub { margin-left: 20px; background: var(--bg); }
-.folder-item-name {
+.folder-inline-create input::placeholder { color: var(--text3); }
+.btn-folder-confirm, .btn-folder-cancel {
+  width: 26px; height: 26px; border-radius: 50%; border: none;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: opacity .15s;
+}
+.btn-folder-confirm { background: var(--accent); color: #fff; }
+.btn-folder-confirm:hover { opacity: .85; }
+.btn-folder-cancel { background: var(--bg3); color: var(--text2); }
+.btn-folder-cancel:hover { background: var(--border); }
+
+/* ═══ CARD FOLDER ROW (quick folder assignment) ═══ */
+.card-folder-row {
   display: flex; align-items: center; gap: 6px;
-  font-size: 14px; font-weight: 500;
+  padding-top: 10px; margin-top: 10px;
+  border-top: 1px solid var(--border);
+  color: var(--text3);
 }
-.folder-item-meta { font-size: 12px; color: var(--text3); margin-top: 2px; }
-.folder-item-actions { display: flex; gap: 4px; flex-shrink: 0; }
-.folders-empty { font-size: 13px; color: var(--text3); text-align: center; padding: 24px 0; }
+.card-folder-select {
+  flex: 1; background: transparent; border: none;
+  color: var(--text2); font-size: 12px; cursor: pointer;
+  padding: 2px 4px; border-radius: 4px; outline: none; font-family: inherit;
+  transition: background .15s;
+}
+.card-folder-select:hover { background: var(--bg3); color: var(--text); }
+.card-folder-select:focus { background: var(--bg3); outline: 1px solid var(--accent); }
+.card-folder-select option { background: var(--bg2); }
+
+/* Row view folder inline */
+.row-folder-wrap {
+  display: inline-flex; align-items: center; gap: 3px;
+  color: var(--text3); vertical-align: middle;
+}
+.row-folder-select {
+  max-width: 120px; flex: none;
+}
 
 /* ═══ FOLDER SELECT IN ROTATOR FORM ═══ */
 .folder-select {
@@ -598,8 +630,7 @@ input, textarea { font-family: inherit; }
   #stepForm.mode-equal .link-row { grid-template-columns: 20px 1fr 32px; }
   .folder-bar { gap: 6px; padding-bottom: 8px; }
   .folder-tab { padding: 4px 10px; font-size: 12px; }
-  .folder-create-form { flex-wrap: wrap; }
-  .folder-create-form input[type="text"] { min-width: 0; }
+  .folder-inline-create input { width: 130px; }
   .rotator-row { grid-template-columns: 1fr auto; grid-template-rows: auto auto; gap: 8px; }
   .row-url { grid-column: 1 / -1; }
   .row-clicks { justify-content: flex-start; }

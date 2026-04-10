@@ -71,15 +71,13 @@ function bindEvents() {
   document.getElementById('modePillEqual').onclick = () => setCurrentMode('equal');
   document.getElementById('modePillWeighted').onclick = () => setCurrentMode('weighted');
 
-  // Folder management
-  document.getElementById('btnManageFolders').onclick = openFolderModal;
-  document.getElementById('btnCloseFolders').onclick = closeFolderModal;
-  document.getElementById('btnCreateFolder').onclick = createFolder;
-  document.getElementById('modalFolders').addEventListener('click', e => {
-    if (e.target === e.currentTarget) closeFolderModal();
-  });
-  document.getElementById('newFolderName').addEventListener('keydown', e => {
-    if (e.key === 'Enter') createFolder();
+  // Folder management (inline in bar)
+  document.getElementById('btnAddFolder').onclick = toggleInlineFolderCreate;
+  document.getElementById('btnInlineFolderSave').onclick = createFolderInline;
+  document.getElementById('btnInlineFolderCancel').onclick = cancelInlineFolderCreate;
+  document.getElementById('inlineFolderInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') createFolderInline();
+    if (e.key === 'Escape') cancelInlineFolderCreate();
   });
 
   // Drag-and-drop for link rows (event delegation on the list container)
@@ -220,58 +218,72 @@ function renderAll() {
   grid.querySelectorAll('[data-action]').forEach(el => {
     el.addEventListener('click', handleCardAction);
   });
+
+  // Bind folder assignment selects
+  grid.querySelectorAll('.card-folder-select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      moveRotatorFolder(sel.dataset.rotatorId, sel.value || null);
+    });
+  });
 }
 
 function filterRotatorsByFolder(rotators, folderId) {
   if (folderId === 'all')  return rotators;
   if (folderId === 'none') return rotators.filter(r => !r.folderId);
-  // Include direct members + members of subfolders
-  const subIds = folders.filter(f => f.parentId === folderId).map(f => f.id);
-  return rotators.filter(r => r.folderId === folderId || subIds.includes(r.folderId));
+  return rotators.filter(r => String(r.folderId) === String(folderId));
 }
 
 function renderFolderBar() {
   const bar = document.getElementById('folderBar');
-  // Show bar whenever there are rotators so the "Nueva carpeta" button is always reachable
   bar.style.display = rotators.length > 0 ? 'flex' : 'none';
 
-  // Remove previously injected dynamic tabs
-  bar.querySelectorAll('.folder-tab-dyn').forEach(t => t.remove());
+  // Remove previously injected dynamic tab wrappers
+  bar.querySelectorAll('.folder-tab-wrap').forEach(t => t.remove());
 
-  // Re-inject root folder tabs after the "Sin carpeta" tab
-  const noneTab = bar.querySelector('[data-folder-id="none"]');
-  const rootFolders = folders.filter(f => !f.parentId);
-  rootFolders.forEach(f => {
+  // Flat folder tabs — inject before the inline-create div
+  const insertBefore = document.getElementById('folderInlineCreate');
+  folders.forEach(f => {
+    const wrap = document.createElement('div');
+    wrap.className = 'folder-tab-wrap';
+
     const btn = document.createElement('button');
-    btn.className = 'folder-tab folder-tab-dyn';
+    btn.className = 'folder-tab';
     btn.dataset.folderId = f.id;
     btn.textContent = f.name;
-    noneTab.insertAdjacentElement('afterend', btn);
+    btn.classList.toggle('active', String(f.id) === String(currentFolderId));
+    btn.onclick = () => selectFolder(f.id);
+
+    const actions = document.createElement('div');
+    actions.className = 'folder-tab-actions';
+    actions.innerHTML = `
+      <button class="folder-tab-btn-rename" title="Renombrar">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      </button>
+      <button class="folder-tab-btn-delete" title="Eliminar">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    `;
+    actions.querySelector('.folder-tab-btn-rename').onclick = e => {
+      e.stopPropagation();
+      startInlineRename(f.id, f.name, btn);
+    };
+    actions.querySelector('.folder-tab-btn-delete').onclick = e => {
+      e.stopPropagation();
+      deleteFolder(f.id);
+    };
+
+    wrap.appendChild(btn);
+    wrap.appendChild(actions);
+    insertBefore.insertAdjacentElement('beforebegin', wrap);
   });
 
-  // Subfolders: inject below their parent if parent is selected
-  if (currentFolderId !== 'all' && currentFolderId !== 'none') {
-    const parentFolder = folders.find(f => f.id === currentFolderId && !f.parentId);
-    if (parentFolder) {
-      const subs = folders.filter(f => f.parentId === currentFolderId);
-      const parentTab = bar.querySelector(`[data-folder-id="${currentFolderId}"]`);
-      if (parentTab && subs.length > 0) {
-        subs.forEach(sub => {
-          const btn = document.createElement('button');
-          btn.className = 'folder-tab folder-tab-dyn folder-tab-sub';
-          btn.dataset.folderId = sub.id;
-          btn.textContent = '↳ ' + sub.name;
-          parentTab.insertAdjacentElement('afterend', btn);
-        });
-      }
-    }
-  }
-
-  // Sync active state + bind click
-  bar.querySelectorAll('.folder-tab').forEach(tab => {
-    tab.classList.toggle('active', tab.dataset.folderId === currentFolderId);
-    tab.onclick = () => selectFolder(tab.dataset.folderId);
-  });
+  // Sync static tabs
+  const allTab = bar.querySelector('[data-folder-id="all"]');
+  const noneTab = bar.querySelector('[data-folder-id="none"]');
+  allTab.classList.toggle('active', currentFolderId === 'all');
+  allTab.onclick = () => selectFolder('all');
+  noneTab.classList.toggle('active', currentFolderId === 'none');
+  noneTab.onclick = () => selectFolder('none');
 }
 
 function selectFolder(folderId) {
@@ -303,6 +315,9 @@ function renderCard(r) {
   }).join('');
 
   const moreLinks = linkCount > 4 ? `<div class="link-preview-item"><span class="link-preview-label" style="color:var(--text3)">+${linkCount - 4} links más…</span></div>` : '';
+
+  const folderOptions = `<option value="">Sin carpeta</option>` +
+    folders.map(f => `<option value="${f.id}" ${String(r.folderId) === String(f.id) ? 'selected' : ''}>${escHtml(f.name)}</option>`).join('');
 
   return `
     <div class="rotator-card" data-id="${r.id}">
@@ -347,6 +362,11 @@ function renderCard(r) {
         </div>
         <button class="btn btn-ghost btn-sm" data-action="stats" data-id="${r.id}">Ver estadísticas →</button>
       </div>
+
+      <div class="card-folder-row">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <select class="card-folder-select" data-rotator-id="${r.id}">${folderOptions}</select>
+      </div>
     </div>
   `;
 }
@@ -356,6 +376,8 @@ function renderRow(r) {
   const linkCount = r.links?.length || 0;
   const createdDate = new Date(r.createdAt).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' });
   const isEqual = r.distributionMode === 'equal';
+  const folderOptions = `<option value="">Sin carpeta</option>` +
+    folders.map(f => `<option value="${f.id}" ${String(r.folderId) === String(f.id) ? 'selected' : ''}>${escHtml(f.name)}</option>`).join('');
 
   return `
     <div class="rotator-row" data-id="${r.id}">
@@ -364,6 +386,10 @@ function renderRow(r) {
         <div class="row-meta">
           ${linkCount} link${linkCount !== 1 ? 's' : ''} · ${createdDate}
           <span class="mode-badge ${isEqual ? 'equal' : 'weighted'}">${isEqual ? 'Equitativa' : '% Pesado'}</span>
+          <span class="row-folder-wrap">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <select class="card-folder-select row-folder-select" data-rotator-id="${r.id}">${folderOptions}</select>
+          </span>
         </div>
       </div>
       <div class="row-url">
@@ -881,150 +907,129 @@ async function deleteMember(id, email) {
 
 function populateFolderSelect(selectedFolderId) {
   const sel = document.getElementById('rotatorFolder');
-  const rootFolders = folders.filter(f => !f.parentId);
   let options = '<option value="">Sin carpeta</option>';
-  rootFolders.forEach(root => {
-    options += `<option value="${root.id}" ${selectedFolderId === root.id ? 'selected' : ''}>${escHtml(root.name)}</option>`;
-    folders.filter(f => f.parentId === root.id).forEach(sub => {
-      options += `<option value="${sub.id}" ${selectedFolderId === sub.id ? 'selected' : ''}>\u00a0\u00a0↳ ${escHtml(sub.name)}</option>`;
-    });
+  folders.forEach(f => {
+    options += `<option value="${f.id}" ${String(selectedFolderId) === String(f.id) ? 'selected' : ''}>${escHtml(f.name)}</option>`;
   });
   sel.innerHTML = options;
-  // Show folder dropdown only if folders exist
-  document.getElementById('folderSelectGroup').style.display = folders.length > 0 ? '' : 'none';
+  document.getElementById('folderSelectGroup').style.display = '';
 }
 
-async function openFolderModal() {
-  document.getElementById('newFolderName').value = '';
-  renderFoldersList();
-  document.getElementById('modalFolders').classList.add('open');
-  setTimeout(() => document.getElementById('newFolderName').focus(), 80);
+// ─── Inline folder creation ───────────────────────────────────────────────────
+
+function toggleInlineFolderCreate() {
+  document.getElementById('folderInlineCreate').style.display = '';
+  document.getElementById('btnAddFolder').style.display = 'none';
+  const input = document.getElementById('inlineFolderInput');
+  input.value = '';
+  input.focus();
 }
 
-function closeFolderModal() {
-  document.getElementById('modalFolders').classList.remove('open');
+function cancelInlineFolderCreate() {
+  document.getElementById('folderInlineCreate').style.display = 'none';
+  document.getElementById('btnAddFolder').style.display = '';
 }
 
-function renderFoldersList() {
-  const rootFolders = folders.filter(f => !f.parentId);
+async function createFolderInline() {
+  const input = document.getElementById('inlineFolderInput');
+  const name = input.value.trim();
+  if (!name) { toast('Escribe un nombre para la carpeta', 'error'); input.focus(); return; }
 
-  // Rebuild parent select
-  const parentSel = document.getElementById('newFolderParent');
-  parentSel.innerHTML = '<option value="">Carpeta raíz</option>' +
-    rootFolders.map(f => `<option value="${f.id}">${escHtml(f.name)}</option>`).join('');
-
-  const container = document.getElementById('foldersList');
-  if (rootFolders.length === 0) {
-    container.innerHTML = '<p class="folders-empty">No hay carpetas aún. ¡Crea la primera arriba!</p>';
-    return;
-  }
-
-  container.innerHTML = rootFolders.map(root => {
-    const subs = folders.filter(f => f.parentId === root.id);
-    const subsHTML = subs.map(sub => `
-      <div class="folder-item folder-item-sub">
-        <span class="folder-item-name">↳ ${escHtml(sub.name)}</span>
-        <div class="folder-item-actions">
-          <button class="btn btn-icon btn-sm" onclick="renameFolderPrompt('${sub.id}','${escHtml(sub.name).replace(/'/g,"\\'")}')">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          </button>
-          <button class="btn btn-icon btn-danger btn-sm" onclick="deleteFolder('${sub.id}')">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-          </button>
-        </div>
-      </div>
-    `).join('');
-
-    const rotatorCount = rotators.filter(r => r.folderId === root.id).length;
-    const subCount = subs.length;
-    const meta = [
-      rotatorCount ? `${rotatorCount} rotador${rotatorCount !== 1 ? 'es' : ''}` : '',
-      subCount ? `${subCount} subcarpeta${subCount !== 1 ? 's' : ''}` : ''
-    ].filter(Boolean).join(' · ');
-
-    return `
-      <div class="folder-item">
-        <div>
-          <div class="folder-item-name">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-            ${escHtml(root.name)}
-          </div>
-          ${meta ? `<div class="folder-item-meta">${meta}</div>` : ''}
-        </div>
-        <div class="folder-item-actions">
-          <button class="btn btn-icon btn-sm" onclick="renameFolderPrompt('${root.id}','${escHtml(root.name).replace(/'/g,"\\'")}')">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          </button>
-          <button class="btn btn-icon btn-danger btn-sm" onclick="deleteFolder('${root.id}')">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-          </button>
-        </div>
-      </div>
-      ${subsHTML}
-    `;
-  }).join('');
-}
-
-async function createFolder() {
-  const name = document.getElementById('newFolderName').value.trim();
-  const parentId = document.getElementById('newFolderParent').value || null;
-  if (!name) { toast('Escribe un nombre para la carpeta', 'error'); return; }
-
-  const btn = document.getElementById('btnCreateFolder');
-  btn.disabled = true;
+  const saveBtn = document.getElementById('btnInlineFolderSave');
+  saveBtn.disabled = true;
   try {
-    const folder = await api('POST', '/api/folders', { name, parentId });
+    const folder = await api('POST', '/api/folders', { name, parentId: null });
     folders.push(folder);
-    document.getElementById('newFolderName').value = '';
-    renderFoldersList();
+    cancelInlineFolderCreate();
     renderFolderBar();
     toast('Carpeta creada', 'success');
   } catch (e) {
     toast(e.message, 'error');
   } finally {
-    btn.disabled = false;
+    saveBtn.disabled = false;
   }
 }
 
-async function renameFolderPrompt(id, currentName) {
-  const name = prompt('Nuevo nombre para la carpeta:', currentName);
-  if (!name || name.trim() === currentName) return;
-  try {
-    const updated = await api('PUT', `/api/folders/${id}`, { name: name.trim() });
-    const idx = folders.findIndex(f => f.id === id);
-    if (idx !== -1) folders[idx] = updated;
-    renderFoldersList();
-    renderFolderBar();
-    renderAll();
-    toast('Carpeta renombrada', 'success');
-  } catch (e) {
-    toast(e.message, 'error');
-  }
+// ─── Inline folder rename (in-place tab editing) ──────────────────────────────
+
+function startInlineRename(id, currentName, tabBtn) {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'folder-tab folder-tab-rename-input';
+  input.value = currentName;
+  input.maxLength = 50;
+
+  let saved = false;
+  const finish = async (save) => {
+    if (saved) return;
+    saved = true;
+    const newName = input.value.trim();
+    if (save && newName && newName !== currentName) {
+      try {
+        const updated = await api('PUT', `/api/folders/${id}`, { name: newName });
+        const idx = folders.findIndex(f => String(f.id) === String(id));
+        if (idx !== -1) folders[idx] = updated;
+        renderFolderBar();
+        renderAll();
+        toast('Carpeta renombrada', 'success');
+      } catch (e) {
+        toast(e.message, 'error');
+        renderFolderBar();
+      }
+    } else {
+      renderFolderBar();
+    }
+  };
+
+  input.onblur = () => finish(true);
+  input.onkeydown = e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.onblur = null; finish(true); }
+    if (e.key === 'Escape') { input.onblur = null; finish(false); }
+  };
+
+  tabBtn.replaceWith(input);
+  input.focus();
+  input.select();
 }
 
 async function deleteFolder(id) {
-  const folder = folders.find(f => f.id === id);
+  const folder = folders.find(f => String(f.id) === String(id));
   if (!folder) return;
-  const subIds = folders.filter(f => f.parentId === id).map(f => f.id);
-  const affectedRotators = rotators.filter(r => r.folderId === id || subIds.includes(r.folderId)).length;
+  const affectedCount = rotators.filter(r => String(r.folderId) === String(id)).length;
   let msg = `¿Eliminar la carpeta "${folder.name}"?`;
-  if (subIds.length > 0) msg += `\nSe eliminarán ${subIds.length} subcarpeta(s).`;
-  if (affectedRotators > 0) msg += `\n${affectedRotators} rotador(es) quedarán sin carpeta.`;
+  if (affectedCount > 0) msg += `\n${affectedCount} rotador(es) quedarán sin carpeta.`;
   if (!confirm(msg)) return;
 
   try {
     await api('DELETE', `/api/folders/${id}`);
-    // Update local state
-    folders = folders.filter(f => f.id !== id && !subIds.includes(f.id));
-    rotators.forEach(r => {
-      if (r.folderId === id || subIds.includes(r.folderId)) r.folderId = null;
-    });
-    if (currentFolderId === id || subIds.includes(currentFolderId)) currentFolderId = 'all';
-    renderFoldersList();
+    folders = folders.filter(f => String(f.id) !== String(id));
+    rotators.forEach(r => { if (String(r.folderId) === String(id)) r.folderId = null; });
+    if (String(currentFolderId) === String(id)) currentFolderId = 'all';
     renderAll();
     toast('Carpeta eliminada', 'info');
   } catch (e) {
     toast(e.message, 'error');
+  }
+}
+
+async function moveRotatorFolder(rotatorId, folderId) {
+  const r = rotators.find(x => String(x.id) === String(rotatorId));
+  if (!r) return;
+  const oldFolder = r.folderId;
+  r.folderId = folderId || null; // optimistic update
+  try {
+    await api('PUT', `/api/rotators/${rotatorId}`, {
+      name: r.name, links: r.links,
+      distributionMode: r.distributionMode,
+      folderId: folderId || null
+    });
+    renderFolderBar();
+    if (currentFolderId !== 'all') renderAll();
+    toast('Carpeta actualizada', 'success');
+  } catch (e) {
+    r.folderId = oldFolder; // revert on error
+    toast(e.message, 'error');
+    renderAll();
   }
 }
 

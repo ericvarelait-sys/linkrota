@@ -58,9 +58,18 @@
     <div class="folder-bar" id="folderBar" style="display:none">
       <button class="folder-tab active" data-folder-id="all">Todos</button>
       <button class="folder-tab" data-folder-id="none">Sin carpeta</button>
-      <!-- dynamic folder tabs injected by JS -->
-      <button class="btn btn-ghost btn-sm folder-manage-btn" id="btnManageFolders" title="Gestionar carpetas">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+      <!-- dynamic folder tabs injected by JS (.folder-tab-wrap) -->
+      <div class="folder-inline-create" id="folderInlineCreate" style="display:none">
+        <input type="text" id="inlineFolderInput" placeholder="Nombre de carpeta…" maxlength="50" />
+        <button class="btn-folder-confirm" id="btnInlineFolderSave" title="Crear">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+        <button class="btn-folder-cancel" id="btnInlineFolderCancel" title="Cancelar">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <button class="btn btn-ghost btn-sm folder-add-btn" id="btnAddFolder">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Nueva carpeta
       </button>
     </div>
@@ -240,34 +249,6 @@
         <!-- Members list -->
         <div class="team-section-title">Miembros actuales</div>
         <div id="teamList" class="team-list"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ MODAL: Gestionar Carpetas ═══ -->
-  <div class="modal-overlay" id="modalFolders">
-    <div class="modal">
-      <div class="modal-header">
-        <h2>Carpetas</h2>
-        <button class="btn btn-icon" id="btnCloseFolders">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="modal-body">
-
-        <!-- Crear nueva carpeta -->
-        <div class="folder-create-form">
-          <input type="text" id="newFolderName" placeholder="Nombre de carpeta…" maxlength="50" />
-          <select id="newFolderParent">
-            <option value="">Carpeta raíz</option>
-          </select>
-          <button class="btn btn-primary btn-sm" id="btnCreateFolder">Crear</button>
-        </div>
-
-        <!-- Lista de carpetas -->
-        <div class="folder-section-title">Carpetas existentes</div>
-        <div id="foldersList"></div>
-
       </div>
     </div>
   </div>
