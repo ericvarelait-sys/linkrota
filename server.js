@@ -60,6 +60,17 @@ async function initDb() {
     )
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS short_links (
+      id         TEXT PRIMARY KEY,
+      code       TEXT UNIQUE NOT NULL,
+      url        TEXT NOT NULL,
+      label      TEXT NOT NULL DEFAULT '',
+      clicks     INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
   // Seed admin user if no users exist
   const { rows } = await pool.query('SELECT COUNT(*) FROM users');
   if (parseInt(rows[0].count) === 0) {
@@ -217,6 +228,14 @@ function generateId() {
   return crypto.randomBytes(4).toString('hex');
 }
 
+function generateShortCode() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let code = '';
+  const bytes = crypto.randomBytes(6);
+  for (const b of bytes) code += chars[b % chars.length];
+  return code;
+}
+
 function generateSlug(name) {
   const base = name
     .toLowerCase()
@@ -290,6 +309,32 @@ app.get('/r/:slug', async (req, res) => {
     if (mode === 'equal') {
       idx = row.current_index % links.length;
       newCurrentIndex = row.current_index + 1;
+    } else if (mode === 'schedule') {
+      const now = new Date();
+      const currentDay = now.getDay(); // 0=Dom … 6=Sáb
+      const hh = now.getHours().toString().padStart(2, '0');
+      const mm = now.getMinutes().toString().padStart(2, '0');
+      const currentTime = `${hh}:${mm}`;
+
+      idx = links.findIndex(l => {
+        const s = l.schedule;
+        if (!s || !Array.isArray(s.days) || !s.days.length) return false;
+        return s.days.includes(currentDay) &&
+               currentTime >= (s.timeStart || '00:00') &&
+               currentTime <= (s.timeEnd   || '23:59');
+      });
+
+      if (idx === -1) {
+        return res.status(200).send(`
+          <html><head><meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1">
+          </head>
+          <body style="font-family:sans-serif;text-align:center;padding:60px;color:#888">
+            <h2 style="color:#444">Este link no está disponible ahora</h2>
+            <p style="margin-top:8px">Volvé en el horario configurado.</p>
+          </body></html>`);
+      }
+      newCurrentIndex = row.current_index;
     } else {
       idx = selectWeightedIndex(links);
       newCurrentIndex = row.current_index;
@@ -334,7 +379,7 @@ app.post('/api/rotators', authMiddleware, async (req, res) => {
   if (!Array.isArray(links) || links.length < 1)
     return res.status(400).json({ error: 'Se necesita al menos 1 link' });
 
-  const mode = ['equal', 'weighted'].includes(distributionMode) ? distributionMode : 'weighted';
+  const mode = ['equal', 'weighted', 'schedule'].includes(distributionMode) ? distributionMode : 'weighted';
   const validFolderId = folderId || null;
 
   if (validFolderId) {
@@ -349,7 +394,8 @@ app.post('/api/rotators', authMiddleware, async (req, res) => {
     label: (l.label || '').trim() || `Link ${i + 1}`,
     url: l.url.trim(),
     clicks: 0,
-    weight: Math.max(1, parseInt(l.weight) || 1)
+    weight: Math.max(1, parseInt(l.weight) || 1),
+    schedule: l.schedule || null
   }));
 
   try {
@@ -382,7 +428,7 @@ app.put('/api/rotators/:id', authMiddleware, async (req, res) => {
     if (!existing[0]) return res.status(404).json({ error: 'No encontrado' });
 
     const newName = (name && name.trim()) ? name.trim() : existing[0].name;
-    const newMode = ['equal', 'weighted'].includes(distributionMode)
+    const newMode = ['equal', 'weighted', 'schedule'].includes(distributionMode)
       ? distributionMode
       : (existing[0].distribution_mode || 'weighted');
     const newFolderId = 'folderId' in req.body ? (folderId || null) : existing[0].folder_id;
@@ -399,7 +445,8 @@ app.put('/api/rotators/:id', authMiddleware, async (req, res) => {
         label: (l.label || '').trim() || `Link ${i + 1}`,
         url: l.url.trim(),
         clicks: l.clicks || 0,
-        weight: Math.max(1, parseInt(l.weight) || 1)
+        weight: Math.max(1, parseInt(l.weight) || 1),
+        schedule: l.schedule || null
       }));
     }
 
@@ -507,6 +554,73 @@ app.delete('/api/folders/:id', authMiddleware, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Error al eliminar carpeta' });
+  }
+});
+
+// ─── Short Links redirect ─────────────────────────────────────────────────────
+
+app.get('/s/:code', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM short_links WHERE code = $1', [req.params.code]);
+    const row = rows[0];
+    if (!row) {
+      return res.status(404).send(`
+        <html><head><meta charset="UTF-8"></head>
+        <body style="font-family:sans-serif;text-align:center;padding:60px">
+          <h2>Link corto no encontrado</h2><a href="/">Volver al inicio</a>
+        </body></html>`);
+    }
+    await pool.query('UPDATE short_links SET clicks = clicks + 1 WHERE id = $1', [row.id]);
+    res.redirect(row.url);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Error interno');
+  }
+});
+
+// ─── Short Links API ──────────────────────────────────────────────────────────
+
+app.get('/api/short-links', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM short_links ORDER BY created_at DESC');
+    res.json(rows.map(r => ({
+      id: r.id, code: r.code, url: r.url, label: r.label,
+      clicks: r.clicks, createdAt: r.created_at
+    })));
+  } catch (e) {
+    res.status(500).json({ error: 'Error al cargar links cortos' });
+  }
+});
+
+app.post('/api/short-links', authMiddleware, async (req, res) => {
+  const { url, label, code } = req.body;
+  if (!url || typeof url !== 'string' || !url.trim())
+    return res.status(400).json({ error: 'URL requerida' });
+
+  const normalizedUrl = url.trim().startsWith('http') ? url.trim() : 'https://' + url.trim();
+  const customCode = (code || '').trim().toLowerCase().replace(/[^a-z0-9-_]/g, '');
+  const finalCode = customCode || generateShortCode();
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO short_links (id, code, url, label) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [generateId(), finalCode, normalizedUrl, (label || '').trim()]
+    );
+    const r = rows[0];
+    res.status(201).json({ id: r.id, code: r.code, url: r.url, label: r.label, clicks: r.clicks, createdAt: r.created_at });
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'Ese código ya está en uso' });
+    res.status(500).json({ error: 'Error al crear link corto' });
+  }
+});
+
+app.delete('/api/short-links/:id', authMiddleware, async (req, res) => {
+  try {
+    const { rowCount } = await pool.query('DELETE FROM short_links WHERE id = $1', [req.params.id]);
+    if (rowCount === 0) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al eliminar' });
   }
 });
 

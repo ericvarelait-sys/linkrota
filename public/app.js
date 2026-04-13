@@ -4,6 +4,7 @@
 
 let rotators = [];
 let folders = [];
+let shortLinks = [];
 let currentStatsId = null;
 let currentView = localStorage.getItem('lr_view') || 'grid';
 let currentMode = 'weighted'; // 'equal' | 'weighted'
@@ -60,16 +61,27 @@ function bindEvents() {
   document.getElementById('btnTeam').onclick = openTeamModal;
   document.getElementById('btnCloseTeam').onclick = closeTeamModal;
   document.getElementById('btnAddMember').onclick = addMember;
+  document.getElementById('btnShortLinks').onclick = openShortLinksModal;
+  document.getElementById('btnCloseShortLinks').onclick = closeShortLinksModal;
+  document.getElementById('btnCreateShortLink').onclick = createShortLink;
+  document.getElementById('newShortUrl').addEventListener('keydown', e => {
+    if (e.key === 'Enter') createShortLink();
+  });
+  document.getElementById('modalShortLinks').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeShortLinksModal();
+  });
   document.getElementById('btnViewGrid').onclick = () => setView('grid');
   document.getElementById('btnViewList').onclick = () => setView('list');
 
   // Mode picker (step 1)
-  document.getElementById('modeCardEqual').onclick = () => selectMode('equal');
+  document.getElementById('modeCardEqual').onclick    = () => selectMode('equal');
   document.getElementById('modeCardWeighted').onclick = () => selectMode('weighted');
+  document.getElementById('modeCardSchedule').onclick = () => selectMode('schedule');
 
   // Mode toggle pills (step 2)
-  document.getElementById('modePillEqual').onclick = () => setCurrentMode('equal');
+  document.getElementById('modePillEqual').onclick    = () => setCurrentMode('equal');
   document.getElementById('modePillWeighted').onclick = () => setCurrentMode('weighted');
+  document.getElementById('modePillSchedule').onclick = () => setCurrentMode('schedule');
 
   // Folder management (inline in bar)
   document.getElementById('btnAddFolder').onclick = toggleInlineFolderCreate;
@@ -331,13 +343,23 @@ function renderCard(r) {
   const rotatorUrl = `${window.location.origin}/r/${r.slug}`;
   const linkCount = r.links?.length || 0;
   const createdDate = new Date(r.createdAt).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' });
-  const isEqual = r.distributionMode === 'equal';
+  const isEqual    = r.distributionMode === 'equal';
+  const isSchedule = r.distributionMode === 'schedule';
 
   const totalWeight = (r.links || []).reduce((sum, l) => sum + (l.weight || 1), 0);
   const linksPreview = (r.links || []).slice(0, 4).map(l => {
-    const pctDisplay = isEqual
-      ? '&nbsp;=&nbsp;'
-      : `${totalWeight > 0 ? Math.round(((l.weight || 1) / totalWeight) * 100) : 0}%`;
+    let pctDisplay;
+    if (isSchedule) {
+      const days = formatScheduleDays(l.schedule);
+      const time = formatScheduleTime(l.schedule);
+      pctDisplay = `<span class="link-preview-schedule" title="${escHtml(days + (time ? ' ' + time : ''))}">
+        ${escHtml(days)}${time ? `<br><small>${escHtml(time)}</small>` : ''}
+      </span>`;
+    } else {
+      pctDisplay = isEqual
+        ? '&nbsp;=&nbsp;'
+        : `${totalWeight > 0 ? Math.round(((l.weight || 1) / totalWeight) * 100) : 0}%`;
+    }
     return `
     <div class="link-preview-item">
       <span class="link-preview-label" title="${escHtml(l.url)}">${escHtml(l.label)}</span>
@@ -362,7 +384,7 @@ function renderCard(r) {
           <div class="card-title">${escHtml(r.name)}</div>
           <div class="card-meta">
             ${linkCount} link${linkCount !== 1 ? 's' : ''} · ${createdDate}
-            <span class="mode-badge ${isEqual ? 'equal' : 'weighted'}">${isEqual ? 'Equitativa' : '% Pesado'}</span>
+            <span class="mode-badge ${isEqual ? 'equal' : isSchedule ? 'schedule' : 'weighted'}">${isEqual ? 'Equitativa' : isSchedule ? 'Horario' : '% Pesado'}</span>
           </div>
         </div>
         <div class="card-actions">
@@ -411,7 +433,8 @@ function renderRow(r) {
   const rotatorUrl = `${window.location.origin}/r/${r.slug}`;
   const linkCount = r.links?.length || 0;
   const createdDate = new Date(r.createdAt).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' });
-  const isEqual = r.distributionMode === 'equal';
+  const isEqual    = r.distributionMode === 'equal';
+  const isSchedule = r.distributionMode === 'schedule';
   const folderOptions = `<option value="">Sin carpeta</option>` +
     folders.map(f => `<option value="${f.id}" ${String(r.folderId) === String(f.id) ? 'selected' : ''}>${escHtml(f.name)}</option>`).join('');
 
@@ -421,7 +444,7 @@ function renderRow(r) {
         <div class="row-title">${escHtml(r.name)}</div>
         <div class="row-meta">
           ${linkCount} link${linkCount !== 1 ? 's' : ''} · ${createdDate}
-          <span class="mode-badge ${isEqual ? 'equal' : 'weighted'}">${isEqual ? 'Equitativa' : '% Pesado'}</span>
+          <span class="mode-badge ${isEqual ? 'equal' : isSchedule ? 'schedule' : 'weighted'}">${isEqual ? 'Equitativa' : isSchedule ? 'Horario' : '% Pesado'}</span>
           <span class="row-folder-wrap">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
             <select class="card-folder-select row-folder-select" data-rotator-id="${r.id}">${folderOptions}</select>
@@ -509,11 +532,13 @@ function setCurrentMode(mode) {
 
 function updateModeUI() {
   const stepForm = document.getElementById('stepForm');
-  stepForm.classList.toggle('mode-equal', currentMode === 'equal');
+  stepForm.classList.toggle('mode-equal',    currentMode === 'equal');
   stepForm.classList.toggle('mode-weighted', currentMode === 'weighted');
+  stepForm.classList.toggle('mode-schedule', currentMode === 'schedule');
 
-  document.getElementById('modePillEqual').classList.toggle('active', currentMode === 'equal');
+  document.getElementById('modePillEqual').classList.toggle('active',    currentMode === 'equal');
   document.getElementById('modePillWeighted').classList.toggle('active', currentMode === 'weighted');
+  document.getElementById('modePillSchedule').classList.toggle('active', currentMode === 'schedule');
 
   updateWeightTotal();
 }
@@ -535,7 +560,7 @@ function openEditModal(id) {
 
   const list = document.getElementById('linksList');
   list.innerHTML = '';
-  r.links.forEach(l => addLinkRow(l.label, l.url, l.id, l.clicks, l.weight || 1));
+  r.links.forEach(l => addLinkRow(l.label, l.url, l.id, l.clicks, l.weight || 1, l.schedule || null));
 
   updateModeUI();
   document.getElementById('modalRotator').classList.add('open');
@@ -546,33 +571,68 @@ function closeModal() {
   document.getElementById('modalRotator').classList.remove('open');
 }
 
-function addLinkRow(label = '', url = '', lid = '', clicks = 0, weight = 1) {
+function addLinkRow(label = '', url = '', lid = '', clicks = 0, weight = 1, schedule = null) {
   const list = document.getElementById('linksList');
   const row = document.createElement('div');
-  row.className = 'link-row';
   row.draggable = true;
   row.dataset.lid = lid;
   row.dataset.clicks = clicks;
-  row.innerHTML = `
+
+  const dragHandleHTML = `
     <span class="drag-handle" title="Arrastrar para reordenar">
       <svg width="14" height="14" viewBox="0 0 10 16" fill="currentColor">
         <circle cx="3" cy="2" r="1.5"/><circle cx="7" cy="2" r="1.5"/>
         <circle cx="3" cy="8" r="1.5"/><circle cx="7" cy="8" r="1.5"/>
         <circle cx="3" cy="14" r="1.5"/><circle cx="7" cy="14" r="1.5"/>
       </svg>
-    </span>
-    <input type="text" placeholder="Etiqueta" value="${escHtml(label)}" class="link-label" maxlength="40" />
-    <input type="url" placeholder="https://..." value="${escHtml(url)}" class="link-url" />
-    <input type="number" min="1" max="100" value="${weight}" class="link-weight" title="Porcentaje de tráfico" />
+    </span>`;
+  const removeBtnHTML = `
     <button class="btn-remove-link" title="Eliminar link">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-    </button>
-  `;
+    </button>`;
+
+  if (currentMode === 'schedule') {
+    row.className = 'link-row link-row-schedule';
+    const s = schedule || { days: [], timeStart: '06:00', timeEnd: '23:59' };
+    const DAY_NAMES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const dayBtnsHTML = DAY_NAMES.map((d, i) =>
+      `<button type="button" class="day-btn${s.days.includes(i) ? ' active' : ''}" data-day="${i}">${d}</button>`
+    ).join('');
+    row.innerHTML = `
+      <div class="link-row-main">
+        ${dragHandleHTML}
+        <input type="text" placeholder="Etiqueta" value="${escHtml(label)}" class="link-label" maxlength="40" />
+        <input type="url" placeholder="https://..." value="${escHtml(url)}" class="link-url" />
+        ${removeBtnHTML}
+      </div>
+      <div class="link-row-schedule-opts">
+        <div class="schedule-days">${dayBtnsHTML}</div>
+        <div class="schedule-times">
+          <input type="time" class="link-time-start" value="${escHtml(s.timeStart || '06:00')}" />
+          <span class="schedule-sep">–</span>
+          <input type="time" class="link-time-end" value="${escHtml(s.timeEnd || '23:59')}" />
+        </div>
+      </div>
+    `;
+    row.querySelectorAll('.day-btn').forEach(btn =>
+      btn.addEventListener('click', () => btn.classList.toggle('active'))
+    );
+  } else {
+    row.className = 'link-row';
+    row.innerHTML = `
+      ${dragHandleHTML}
+      <input type="text" placeholder="Etiqueta" value="${escHtml(label)}" class="link-label" maxlength="40" />
+      <input type="url" placeholder="https://..." value="${escHtml(url)}" class="link-url" />
+      <input type="number" min="1" max="100" value="${weight}" class="link-weight" title="Porcentaje de tráfico" />
+      ${removeBtnHTML}
+    `;
+    row.querySelector('.link-weight').addEventListener('input', updateWeightTotal);
+  }
+
   row.querySelector('.btn-remove-link').onclick = () => {
     if (list.children.length > 1) { row.remove(); updateWeightTotal(); }
     else toast('Debe haber al menos 1 link', 'error');
   };
-  row.querySelector('.link-weight').addEventListener('input', updateWeightTotal);
   list.appendChild(row);
   updateWeightTotal();
 }
@@ -596,13 +656,30 @@ async function saveRotator() {
 
     const normalized = url.startsWith('http') ? url : 'https://' + url;
 
-    links.push({
-      id: row.dataset.lid || undefined,
-      label,
-      url: normalized,
-      clicks: parseInt(row.dataset.clicks || 0),
-      weight: Math.max(1, parseInt(row.querySelector('.link-weight').value) || 1)
-    });
+    if (currentMode === 'schedule') {
+      const activeDays = Array.from(row.querySelectorAll('.day-btn.active'))
+        .map(b => parseInt(b.dataset.day));
+      links.push({
+        id: row.dataset.lid || undefined,
+        label,
+        url: normalized,
+        clicks: parseInt(row.dataset.clicks || 0),
+        weight: 1,
+        schedule: {
+          days: activeDays,
+          timeStart: row.querySelector('.link-time-start').value || '00:00',
+          timeEnd:   row.querySelector('.link-time-end').value   || '23:59'
+        }
+      });
+    } else {
+      links.push({
+        id: row.dataset.lid || undefined,
+        label,
+        url: normalized,
+        clicks: parseInt(row.dataset.clicks || 0),
+        weight: Math.max(1, parseInt(row.querySelector('.link-weight').value) || 1)
+      });
+    }
   });
 
   if (hasError) { toast('Completa todos los URLs', 'error'); return; }
@@ -670,7 +747,8 @@ function renderStats(r) {
   const total = r.totalClicks || 0;
   const linkCount = r.links?.length || 0;
   const rotatorUrl = `${window.location.origin}/r/${r.slug}`;
-  const isEqual = r.distributionMode === 'equal';
+  const isEqual    = r.distributionMode === 'equal';
+  const isSchedule = r.distributionMode === 'schedule';
 
   const avg = linkCount > 0 ? (total / linkCount).toFixed(1) : '0';
 
@@ -681,9 +759,17 @@ function renderStats(r) {
     .sort((a, b) => (b.clicks || 0) - (a.clicks || 0))
     .map(l => {
       const actualPct = total > 0 ? Math.round(((l.clicks || 0) / total) * 100) : 0;
-      const configPct = isEqual
-        ? `<span style="color:var(--text3)">—</span>`
-        : `<span style="color:var(--accent);font-weight:600">${totalWeight > 0 ? Math.round(((l.weight || 1) / totalWeight) * 100) : 0}%</span>`;
+      let configPct;
+      if (isSchedule) {
+        const days = formatScheduleDays(l.schedule);
+        const time = formatScheduleTime(l.schedule);
+        configPct = `<span style="font-size:11px;color:var(--accent)">${escHtml(days)}</span>
+                     ${time ? `<br><span style="font-size:11px;color:var(--text2)">${escHtml(time)}</span>` : ''}`;
+      } else {
+        configPct = isEqual
+          ? `<span style="color:var(--text3)">—</span>`
+          : `<span style="color:var(--accent);font-weight:600">${totalWeight > 0 ? Math.round(((l.weight || 1) / totalWeight) * 100) : 0}%</span>`;
+      }
       return `
         <tr>
           <td>
@@ -729,7 +815,7 @@ function renderStats(r) {
         <div class="stats-mini-label">Promedio por link</div>
       </div>
       <div class="stats-mini-card">
-        <div class="stats-mini-val" style="font-size:14px">${isEqual ? 'Equitativa' : 'Por %'}</div>
+        <div class="stats-mini-val" style="font-size:14px">${isEqual ? 'Equitativa' : isSchedule ? 'Horario' : 'Por %'}</div>
         <div class="stats-mini-label">Distribución</div>
       </div>
     </div>
@@ -749,7 +835,7 @@ function renderStats(r) {
         <thead>
           <tr>
             <th>Link</th>
-            <th>${isEqual ? 'Config.' : 'Peso cfg.'}</th>
+            <th>${isSchedule ? 'Horario' : isEqual ? 'Config.' : 'Peso cfg.'}</th>
             <th>Clicks</th>
             <th>% real</th>
             <th>Distribución</th>
@@ -1067,6 +1153,114 @@ async function moveRotatorFolder(rotatorId, folderId) {
     toast(e.message, 'error');
     renderAll();
   }
+}
+
+// ─── Short Links ──────────────────────────────────────────────────────────────
+
+async function openShortLinksModal() {
+  document.getElementById('newShortUrl').value = '';
+  document.getElementById('newShortLabel').value = '';
+  document.getElementById('newShortCode').value = '';
+  document.getElementById('modalShortLinks').classList.add('open');
+  await loadShortLinks();
+}
+
+function closeShortLinksModal() {
+  document.getElementById('modalShortLinks').classList.remove('open');
+}
+
+async function loadShortLinks() {
+  const list = document.getElementById('shortLinksList');
+  list.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:8px 0">Cargando…</div>';
+  try {
+    shortLinks = await api('GET', '/api/short-links');
+    renderShortLinks();
+  } catch (e) {
+    list.innerHTML = `<div style="color:var(--red);font-size:13px">${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderShortLinks() {
+  const list = document.getElementById('shortLinksList');
+  if (!shortLinks.length) {
+    list.innerHTML = '<div class="short-empty">No tenés links cortos todavía.<br>¡Acortá tu primer link arriba!</div>';
+    return;
+  }
+  list.innerHTML = shortLinks.map(s => {
+    const shortUrl = `${window.location.origin}/s/${s.code}`;
+    const date = new Date(s.createdAt).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' });
+    return `
+      <div class="short-link-item">
+        <div class="short-link-info">
+          ${s.label ? `<div class="short-link-label">${escHtml(s.label)}</div>` : ''}
+          <div class="short-link-short-url">${escHtml(shortUrl)}</div>
+          <div class="short-link-dest" title="${escHtml(s.url)}">${escHtml(s.url)}</div>
+          <div class="short-link-meta">${(s.clicks || 0).toLocaleString()} click${s.clicks !== 1 ? 's' : ''} · ${date}</div>
+        </div>
+        <div class="short-link-actions">
+          <button class="btn-copy" onclick="copyToClipboard('${escHtml(shortUrl)}', this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copiar
+          </button>
+          <button class="btn btn-icon btn-danger" onclick="deleteShortLink('${escHtml(s.id)}')" title="Eliminar">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function createShortLink() {
+  const url   = document.getElementById('newShortUrl').value.trim();
+  const label = document.getElementById('newShortLabel').value.trim();
+  const code  = document.getElementById('newShortCode').value.trim();
+
+  if (!url) { toast('Ingresa una URL', 'error'); document.getElementById('newShortUrl').focus(); return; }
+
+  const btn = document.getElementById('btnCreateShortLink');
+  btn.disabled = true;
+  btn.textContent = 'Acortando…';
+  try {
+    const sl = await api('POST', '/api/short-links', { url, label, code });
+    shortLinks.unshift(sl);
+    document.getElementById('newShortUrl').value = '';
+    document.getElementById('newShortLabel').value = '';
+    document.getElementById('newShortCode').value = '';
+    renderShortLinks();
+    toast('Link acortado', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Acortar';
+  }
+}
+
+async function deleteShortLink(id) {
+  if (!confirm('¿Eliminar este link corto?')) return;
+  try {
+    await api('DELETE', `/api/short-links/${id}`);
+    shortLinks = shortLinks.filter(s => s.id !== id);
+    renderShortLinks();
+    toast('Link eliminado', 'info');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+// ─── Schedule helpers ─────────────────────────────────────────────────────────
+
+const DAY_ABBR = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+function formatScheduleDays(schedule) {
+  if (!schedule || !schedule.days || !schedule.days.length) return '—';
+  return [...schedule.days].sort((a, b) => a - b).map(d => DAY_ABBR[d]).join(', ');
+}
+
+function formatScheduleTime(schedule) {
+  if (!schedule || !schedule.timeStart) return '';
+  return `${schedule.timeStart}–${schedule.timeEnd}`;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
