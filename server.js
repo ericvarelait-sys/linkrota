@@ -35,7 +35,8 @@ async function initDb() {
   // Idempotent migrations — each wrapped so one failure doesn't abort startup
   const migrations = [
     `ALTER TABLE rotators ADD COLUMN IF NOT EXISTS distribution_mode TEXT NOT NULL DEFAULT 'weighted'`,
-    `ALTER TABLE rotators ADD COLUMN IF NOT EXISTS folder_id TEXT`
+    `ALTER TABLE rotators ADD COLUMN IF NOT EXISTS folder_id TEXT`,
+    `ALTER TABLE rotators ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'America/Argentina/Buenos_Aires'`
   ];
   for (const sql of migrations) {
     try { await pool.query(sql); } catch (e) { console.warn('Migration skipped:', e.message); }
@@ -275,6 +276,7 @@ function rowToRotator(row) {
     clickHistory: row.click_history,
     distributionMode: row.distribution_mode || 'weighted',
     folderId: row.folder_id || null,
+    timezone: row.timezone || 'America/Argentina/Buenos_Aires',
     createdAt: row.created_at
   };
 }
@@ -310,8 +312,8 @@ app.get('/r/:slug', async (req, res) => {
       idx = row.current_index % links.length;
       newCurrentIndex = row.current_index + 1;
     } else if (mode === 'schedule') {
-      // Convert to Argentina timezone (UTC-3, no DST)
-      const arNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }));
+      const tz = row.timezone || 'America/Argentina/Buenos_Aires';
+      const arNow = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
       const currentDay = arNow.getDay(); // 0=Dom … 6=Sáb
       const hh = arNow.getHours().toString().padStart(2, '0');
       const mm = arNow.getMinutes().toString().padStart(2, '0');
@@ -374,13 +376,14 @@ app.get('/api/rotators', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/rotators', authMiddleware, async (req, res) => {
-  const { name, links, distributionMode, folderId } = req.body;
+  const { name, links, distributionMode, folderId, timezone } = req.body;
   if (!name || typeof name !== 'string' || !name.trim())
     return res.status(400).json({ error: 'Nombre requerido' });
   if (!Array.isArray(links) || links.length < 1)
     return res.status(400).json({ error: 'Se necesita al menos 1 link' });
 
   const mode = ['equal', 'weighted', 'schedule'].includes(distributionMode) ? distributionMode : 'weighted';
+  const validTimezone = (timezone && timezone.trim()) ? timezone.trim() : 'America/Argentina/Buenos_Aires';
   const validFolderId = folderId || null;
 
   if (validFolderId) {
@@ -401,9 +404,9 @@ app.post('/api/rotators', authMiddleware, async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `INSERT INTO rotators (id, slug, name, links, total_clicks, current_index, click_history, distribution_mode, folder_id)
-       VALUES ($1, $2, $3, $4, 0, 0, '[]', $5, $6) RETURNING *`,
-      [id, slug, name.trim(), JSON.stringify(mappedLinks), mode, validFolderId]
+      `INSERT INTO rotators (id, slug, name, links, total_clicks, current_index, click_history, distribution_mode, folder_id, timezone)
+       VALUES ($1, $2, $3, $4, 0, 0, '[]', $5, $6, $7) RETURNING *`,
+      [id, slug, name.trim(), JSON.stringify(mappedLinks), mode, validFolderId, validTimezone]
     );
     res.status(201).json(rowToRotator(rows[0]));
   } catch (e) {
@@ -423,7 +426,7 @@ app.get('/api/rotators/:id', authMiddleware, async (req, res) => {
 });
 
 app.put('/api/rotators/:id', authMiddleware, async (req, res) => {
-  const { name, links, distributionMode, folderId } = req.body;
+  const { name, links, distributionMode, folderId, timezone } = req.body;
   try {
     const { rows: existing } = await pool.query('SELECT * FROM rotators WHERE id = $1', [req.params.id]);
     if (!existing[0]) return res.status(404).json({ error: 'No encontrado' });
@@ -432,6 +435,9 @@ app.put('/api/rotators/:id', authMiddleware, async (req, res) => {
     const newMode = ['equal', 'weighted', 'schedule'].includes(distributionMode)
       ? distributionMode
       : (existing[0].distribution_mode || 'weighted');
+    const newTimezone = (timezone && timezone.trim())
+      ? timezone.trim()
+      : (existing[0].timezone || 'America/Argentina/Buenos_Aires');
     const newFolderId = 'folderId' in req.body ? (folderId || null) : existing[0].folder_id;
 
     if (newFolderId) {
@@ -452,8 +458,8 @@ app.put('/api/rotators/:id', authMiddleware, async (req, res) => {
     }
 
     const { rows } = await pool.query(
-      `UPDATE rotators SET name=$1, links=$2, current_index=0, distribution_mode=$3, folder_id=$4 WHERE id=$5 RETURNING *`,
-      [newName, JSON.stringify(newLinks), newMode, newFolderId, req.params.id]
+      `UPDATE rotators SET name=$1, links=$2, current_index=0, distribution_mode=$3, folder_id=$4, timezone=$5 WHERE id=$6 RETURNING *`,
+      [newName, JSON.stringify(newLinks), newMode, newFolderId, newTimezone, req.params.id]
     );
     res.json(rowToRotator(rows[0]));
   } catch (e) {

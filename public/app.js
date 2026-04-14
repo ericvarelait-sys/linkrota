@@ -384,7 +384,7 @@ function renderCard(r) {
           <div class="card-title">${escHtml(r.name)}</div>
           <div class="card-meta">
             ${linkCount} link${linkCount !== 1 ? 's' : ''} · ${createdDate}
-            <span class="mode-badge ${isEqual ? 'equal' : isSchedule ? 'schedule' : 'weighted'}">${isEqual ? 'Equitativa' : isSchedule ? 'Horario' : '% Pesado'}</span>
+            <span class="mode-badge ${isEqual ? 'equal' : isSchedule ? 'schedule' : 'weighted'}">${isEqual ? 'Equitativa' : isSchedule ? 'Horario' : '% Pesado'}</span>${isSchedule ? `<span class="mode-badge tz-badge" title="${escHtml(r.timezone || '')}">${escHtml(TIMEZONE_LABELS[r.timezone] || r.timezone || 'Argentina')}</span>` : ''}
           </div>
         </div>
         <div class="card-actions">
@@ -444,7 +444,7 @@ function renderRow(r) {
         <div class="row-title">${escHtml(r.name)}</div>
         <div class="row-meta">
           ${linkCount} link${linkCount !== 1 ? 's' : ''} · ${createdDate}
-          <span class="mode-badge ${isEqual ? 'equal' : isSchedule ? 'schedule' : 'weighted'}">${isEqual ? 'Equitativa' : isSchedule ? 'Horario' : '% Pesado'}</span>
+          <span class="mode-badge ${isEqual ? 'equal' : isSchedule ? 'schedule' : 'weighted'}">${isEqual ? 'Equitativa' : isSchedule ? 'Horario' : '% Pesado'}</span>${isSchedule ? `<span class="mode-badge tz-badge" title="${escHtml(r.timezone || '')}">${escHtml(TIMEZONE_LABELS[r.timezone] || r.timezone || 'Argentina')}</span>` : ''}
           <span class="row-folder-wrap">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
             <select class="card-folder-select row-folder-select" data-rotator-id="${r.id}">${folderOptions}</select>
@@ -500,6 +500,7 @@ function openCreateModal() {
   document.getElementById('modalTitle').textContent = 'Nuevo Rotador';
   document.getElementById('rotatorName').value = '';
   document.getElementById('linksList').innerHTML = '';
+  document.getElementById('rotatorTimezone').value = 'America/Argentina/Buenos_Aires';
   populateFolderSelect(null);
 
   // Show step 1 (mode picker), hide step 2 (form)
@@ -552,6 +553,7 @@ function openEditModal(id) {
   document.getElementById('editingId').value = id;
   document.getElementById('modalTitle').textContent = 'Editar Rotador';
   document.getElementById('rotatorName').value = r.name;
+  document.getElementById('rotatorTimezone').value = r.timezone || 'America/Argentina/Buenos_Aires';
   populateFolderSelect(r.folderId);
 
   // Skip step 1, go directly to form
@@ -690,8 +692,9 @@ async function saveRotator() {
   btn.textContent = 'Guardando…';
 
   try {
-    const folderId = document.getElementById('rotatorFolder').value || null;
-    const payload = { name, links, distributionMode: currentMode, folderId };
+    const folderId  = document.getElementById('rotatorFolder').value  || null;
+    const timezone  = document.getElementById('rotatorTimezone').value || 'America/Argentina/Buenos_Aires';
+    const payload = { name, links, distributionMode: currentMode, folderId, timezone };
     if (editingId) {
       await api('PUT', `/api/rotators/${editingId}`, payload);
       toast('Rotador actualizado', 'success');
@@ -1252,6 +1255,41 @@ async function deleteShortLink(id) {
 // ─── Schedule helpers ─────────────────────────────────────────────────────────
 
 const DAY_ABBR = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+const TIMEZONE_LABELS = {
+  'America/Argentina/Buenos_Aires': 'Argentina',
+  'America/La_Paz':       'Bolivia',
+  'America/Sao_Paulo':    'Brasil',
+  'America/Santiago':     'Chile',
+  'America/Bogota':       'Colombia',
+  'America/Guayaquil':    'Ecuador',
+  'America/Asuncion':     'Paraguay',
+  'America/Lima':         'Perú',
+  'America/Montevideo':   'Uruguay',
+  'America/Caracas':      'Venezuela',
+  'America/Costa_Rica':   'Costa Rica',
+  'America/Guatemala':    'Guatemala',
+  'America/Mexico_City':  'México',
+  'America/Panama':       'Panamá',
+  'America/Santo_Domingo':'R. Dominicana',
+  'America/Toronto':      'Canadá (Este)',
+  'America/Vancouver':    'Canadá (Oeste)',
+  'America/New_York':     'EE.UU. Este',
+  'America/Chicago':      'EE.UU. Centro',
+  'America/Los_Angeles':  'EE.UU. Oeste',
+  'Europe/Berlin':        'Alemania',
+  'Europe/Madrid':        'España',
+  'Europe/Paris':         'Francia',
+  'Europe/Rome':          'Italia',
+  'Europe/Lisbon':        'Portugal',
+  'Europe/London':        'Reino Unido',
+  'Europe/Moscow':        'Rusia',
+  'Australia/Sydney':     'Australia',
+  'Asia/Shanghai':        'China',
+  'Asia/Kolkata':         'India',
+  'Asia/Tokyo':           'Japón',
+  'Africa/Johannesburg':  'Sudáfrica',
+};
 
 function formatScheduleDays(schedule) {
   if (!schedule || !schedule.days || !schedule.days.length) return '—';

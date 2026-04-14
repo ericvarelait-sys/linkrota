@@ -579,8 +579,18 @@ input, textarea { font-family: inherit; }
 .link-preview-schedule small { color: var(--text2); }
 
 /* Hide weight-only elements in schedule mode */
-#stepForm.mode-schedule .weight-only  { display: none !important; }
+#stepForm.mode-schedule .weight-only     { display: none !important; }
 #stepForm.mode-schedule #linksColHeaders { display: none !important; }
+
+/* Show schedule-only elements only in schedule mode */
+.schedule-only { display: none !important; }
+#stepForm.mode-schedule .schedule-only { display: block !important; }
+
+/* Timezone badge */
+.tz-badge {
+  color: var(--text2); background: var(--bg3);
+  border: 1px solid var(--border);
+}
 
 /* ═══ DRAG HANDLE & DND ═══ */
 .drag-handle {
