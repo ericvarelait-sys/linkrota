@@ -310,10 +310,11 @@ app.get('/r/:slug', async (req, res) => {
       idx = row.current_index % links.length;
       newCurrentIndex = row.current_index + 1;
     } else if (mode === 'schedule') {
-      const now = new Date();
-      const currentDay = now.getDay(); // 0=Dom … 6=Sáb
-      const hh = now.getHours().toString().padStart(2, '0');
-      const mm = now.getMinutes().toString().padStart(2, '0');
+      // Convert to Argentina timezone (UTC-3, no DST)
+      const arNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }));
+      const currentDay = arNow.getDay(); // 0=Dom … 6=Sáb
+      const hh = arNow.getHours().toString().padStart(2, '0');
+      const mm = arNow.getMinutes().toString().padStart(2, '0');
       const currentTime = `${hh}:${mm}`;
 
       idx = links.findIndex(l => {
