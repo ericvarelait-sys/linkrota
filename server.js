@@ -248,14 +248,14 @@ function generateSlug(name) {
 
 function selectWeightedIndex(links) {
   const totalWeight = links.reduce((sum, l) => sum + (l.weight || 1), 0);
-  const totalClicks = links.reduce((sum, l) => sum + (l.clicks || 0), 0);
-  // Deterministic: select the link most "owed" clicks relative to its weight.
-  // deficit = expected_clicks_after_this_one - current_clicks
+  // Use weight_clicks (resets on every reconfiguration) so new members don't
+  // have to "catch up" to the entire historical click count.
+  const totalClicks = links.reduce((sum, l) => sum + (l.weight_clicks || 0), 0);
   let bestIdx = 0;
   let bestDeficit = -Infinity;
   for (let i = 0; i < links.length; i++) {
     const weight = links[i].weight || 1;
-    const clicks = links[i].clicks || 0;
+    const clicks = links[i].weight_clicks || 0;
     const deficit = (weight / totalWeight) * (totalClicks + 1) - clicks;
     if (deficit > bestDeficit) {
       bestDeficit = deficit;
@@ -346,6 +346,7 @@ app.get('/r/:slug', async (req, res) => {
     const target = links[idx];
 
     links[idx].clicks = (links[idx].clicks || 0) + 1;
+    links[idx].weight_clicks = (links[idx].weight_clicks || 0) + 1;
     const newTotal = row.total_clicks + 1;
 
     let history = row.click_history || [];
@@ -398,6 +399,7 @@ app.post('/api/rotators', authMiddleware, async (req, res) => {
     label: (l.label || '').trim() || `Link ${i + 1}`,
     url: l.url.trim(),
     clicks: 0,
+    weight_clicks: 0,
     weight: Math.max(1, parseInt(l.weight) || 1),
     schedule: l.schedule || null
   }));
@@ -447,14 +449,29 @@ app.put('/api/rotators/:id', authMiddleware, async (req, res) => {
 
     let newLinks = existing[0].links;
     if (Array.isArray(links)) {
-      newLinks = links.map((l, i) => ({
-        id: l.id || generateId(),
-        label: (l.label || '').trim() || `Link ${i + 1}`,
-        url: l.url.trim(),
-        clicks: l.clicks || 0,
-        weight: Math.max(1, parseInt(l.weight) || 1),
-        schedule: l.schedule || null
-      }));
+      // Check if any weight changed or links were added/removed
+      const oldLinks = existing[0].links;
+      const weightsChanged =
+        links.length !== oldLinks.length ||
+        links.some((l, i) => {
+          const old = oldLinks.find(o => o.id === l.id);
+          return !old || (Math.max(1, parseInt(l.weight) || 1)) !== (old.weight || 1);
+        });
+
+      newLinks = links.map((l, i) => {
+        const old = oldLinks.find(o => o.id === l.id);
+        return {
+          id: l.id || generateId(),
+          label: (l.label || '').trim() || `Link ${i + 1}`,
+          url: l.url.trim(),
+          clicks: l.clicks || 0,
+          // Reset period counter whenever weights/members change so the new
+          // distribution takes effect immediately without a catch-up phase.
+          weight_clicks: weightsChanged ? 0 : (old ? (old.weight_clicks || 0) : 0),
+          weight: Math.max(1, parseInt(l.weight) || 1),
+          schedule: l.schedule || null
+        };
+      });
     }
 
     const { rows } = await pool.query(
@@ -483,7 +500,7 @@ app.post('/api/rotators/:id/reset', authMiddleware, async (req, res) => {
     const { rows: existing } = await pool.query('SELECT * FROM rotators WHERE id = $1', [req.params.id]);
     if (!existing[0]) return res.status(404).json({ error: 'No encontrado' });
 
-    const clearedLinks = existing[0].links.map(l => ({ ...l, clicks: 0 }));
+    const clearedLinks = existing[0].links.map(l => ({ ...l, clicks: 0, weight_clicks: 0 }));
     const { rows } = await pool.query(
       `UPDATE rotators SET total_clicks=0, current_index=0, click_history='[]', links=$1 WHERE id=$2 RETURNING *`,
       [JSON.stringify(clearedLinks), req.params.id]
