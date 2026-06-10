@@ -1,16 +1,25 @@
+try { require('dotenv').config(); } catch (_) {}
+
 const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 const { Pool } = require('pg');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-prod';
 
 // ─── Database ─────────────────────────────────────────────────────────────────
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+  ssl: process.env.DATABASE_SSL === 'false' ? false
+     : process.env.DATABASE_URL ? { rejectUnauthorized: false }
+     : false,
+  max: 5,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
 });
 
 function hashPassword(password) {
@@ -85,13 +94,14 @@ async function initDb() {
   console.log('DB lista');
 }
 
-// ─── Auth ─────────────────────────────────────────────────────────────────────
-
-const sessions = new Map(); // token → { userId, email, role, expires }
-
-function generateToken() {
-  return crypto.randomBytes(24).toString('hex');
+// Lazy DB init — starts on first request, reused across warm invocations
+let dbInitPromise = null;
+function getDbReady() {
+  if (!dbInitPromise) dbInitPromise = initDb();
+  return dbInitPromise;
 }
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
 
 function authMiddleware(req, res, next) {
   const auth = req.headers.authorization;
@@ -99,13 +109,12 @@ function authMiddleware(req, res, next) {
     return res.status(401).json({ error: 'No autorizado' });
   }
   const token = auth.slice(7);
-  const session = sessions.get(token);
-  if (!session || session.expires < Date.now()) {
-    sessions.delete(token);
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch (e) {
     return res.status(401).json({ error: 'Sesión expirada' });
   }
-  req.user = session;
-  next();
 }
 
 function adminMiddleware(req, res, next) {
@@ -128,6 +137,17 @@ app.use(express.static(path.join(__dirname, 'public'), {
   }
 }));
 
+// Ensure DB is initialized before any route that needs it
+app.use(async (req, res, next) => {
+  try {
+    await getDbReady();
+    next();
+  } catch (e) {
+    console.error('DB not ready:', e.message);
+    res.status(503).json({ error: 'Base de datos no disponible' });
+  }
+});
+
 // ─── Auth routes ──────────────────────────────────────────────────────────────
 
 app.post('/api/login', async (req, res) => {
@@ -141,19 +161,16 @@ app.post('/api/login', async (req, res) => {
     return res.status(401).json({ error: 'Email o contraseña incorrectos' });
   }
 
-  const token = generateToken();
-  sessions.set(token, {
-    userId: user.id,
-    email: user.email,
-    role: user.role,
-    expires: Date.now() + 8 * 60 * 60 * 1000 // 8h
-  });
+  const token = jwt.sign(
+    { userId: user.id, email: user.email, role: user.role },
+    JWT_SECRET,
+    { expiresIn: '8h' }
+  );
   res.json({ token, email: user.email, role: user.role });
 });
 
+// Logout is handled client-side (delete token from localStorage); server just acknowledges
 app.post('/api/logout', authMiddleware, (req, res) => {
-  const token = req.headers.authorization.slice(7);
-  sessions.delete(token);
   res.json({ ok: true });
 });
 
@@ -197,10 +214,6 @@ app.delete('/api/users/:id', authMiddleware, adminMiddleware, async (req, res) =
   }
   const { rowCount } = await pool.query('DELETE FROM users WHERE id = $1', [req.params.id]);
   if (rowCount === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
-  // Invalidate any active sessions for this user
-  for (const [token, session] of sessions) {
-    if (session.userId === req.params.id) sessions.delete(token);
-  }
   res.json({ ok: true });
 });
 
@@ -654,9 +667,16 @@ app.get('*', (req, res) => {
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
-initDb().then(() => {
-  app.listen(PORT, () => console.log(`LinkRota corriendo en http://localhost:${PORT}`));
-}).catch(err => {
-  console.error('Error conectando a la DB:', err.message);
-  process.exit(1);
-});
+// In local dev (`node server.js`), start listening after DB is ready.
+// On Vercel (serverless), the module is imported — listen is skipped and DB
+// initializes lazily on the first request via the middleware above.
+if (require.main === module) {
+  getDbReady().then(() => {
+    app.listen(PORT, () => console.log(`LinkRota corriendo en http://localhost:${PORT}`));
+  }).catch(err => {
+    console.error('Error conectando a la DB:', err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = app;
