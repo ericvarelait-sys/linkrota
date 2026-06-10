@@ -260,19 +260,24 @@ function generateSlug(name) {
 }
 
 function selectWeightedIndex(links) {
-  const totalWeight = links.reduce((sum, l) => sum + (l.weight || 1), 0);
+  // Skip links with weight 0 (paused in proportional mode)
+  const eligible = links
+    .map((l, i) => ({ ...l, _idx: i }))
+    .filter(l => (l.weight || 0) > 0);
+  if (eligible.length === 0) return 0;
+
   // Use weight_clicks (resets on every reconfiguration) so new members don't
   // have to "catch up" to the entire historical click count.
-  const totalClicks = links.reduce((sum, l) => sum + (l.weight_clicks || 0), 0);
-  let bestIdx = 0;
+  const totalWeight = eligible.reduce((sum, l) => sum + l.weight, 0);
+  const totalClicks = eligible.reduce((sum, l) => sum + (l.weight_clicks || 0), 0);
+  let bestIdx = eligible[0]._idx;
   let bestDeficit = -Infinity;
-  for (let i = 0; i < links.length; i++) {
-    const weight = links[i].weight || 1;
-    const clicks = links[i].weight_clicks || 0;
-    const deficit = (weight / totalWeight) * (totalClicks + 1) - clicks;
+  for (const l of eligible) {
+    const clicks = l.weight_clicks || 0;
+    const deficit = (l.weight / totalWeight) * (totalClicks + 1) - clicks;
     if (deficit > bestDeficit) {
       bestDeficit = deficit;
-      bestIdx = i;
+      bestIdx = l._idx;
     }
   }
   return bestIdx;
@@ -396,7 +401,7 @@ app.post('/api/rotators', authMiddleware, async (req, res) => {
   if (!Array.isArray(links) || links.length < 1)
     return res.status(400).json({ error: 'Se necesita al menos 1 link' });
 
-  const mode = ['equal', 'weighted', 'schedule'].includes(distributionMode) ? distributionMode : 'weighted';
+  const mode = ['equal', 'weighted', 'schedule', 'proportional'].includes(distributionMode) ? distributionMode : 'weighted';
   const validTimezone = (timezone && timezone.trim()) ? timezone.trim() : 'America/Argentina/Buenos_Aires';
   const validFolderId = folderId || null;
 
@@ -413,7 +418,7 @@ app.post('/api/rotators', authMiddleware, async (req, res) => {
     url: l.url.trim(),
     clicks: 0,
     weight_clicks: 0,
-    weight: Math.max(1, parseInt(l.weight) || 1),
+    weight: mode === 'proportional' ? Math.max(0, parseInt(l.weight) || 0) : Math.max(1, parseInt(l.weight) || 1),
     schedule: l.schedule || null
   }));
 
@@ -447,7 +452,7 @@ app.put('/api/rotators/:id', authMiddleware, async (req, res) => {
     if (!existing[0]) return res.status(404).json({ error: 'No encontrado' });
 
     const newName = (name && name.trim()) ? name.trim() : existing[0].name;
-    const newMode = ['equal', 'weighted', 'schedule'].includes(distributionMode)
+    const newMode = ['equal', 'weighted', 'schedule', 'proportional'].includes(distributionMode)
       ? distributionMode
       : (existing[0].distribution_mode || 'weighted');
     const newTimezone = (timezone && timezone.trim())
@@ -481,7 +486,7 @@ app.put('/api/rotators/:id', authMiddleware, async (req, res) => {
           // Reset period counter whenever weights/members change so the new
           // distribution takes effect immediately without a catch-up phase.
           weight_clicks: weightsChanged ? 0 : (old ? (old.weight_clicks || 0) : 0),
-          weight: Math.max(1, parseInt(l.weight) || 1),
+          weight: newMode === 'proportional' ? Math.max(0, parseInt(l.weight) || 0) : Math.max(1, parseInt(l.weight) || 1),
           schedule: l.schedule || null
         };
       });

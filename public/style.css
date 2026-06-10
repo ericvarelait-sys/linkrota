@@ -681,12 +681,17 @@ input, textarea { font-family: inherit; }
 #stepForm.mode-equal .link-row {
   grid-template-columns: 20px 120px 1fr 32px;
 }
-#stepForm.mode-weighted .links-col-headers {
+#stepForm.mode-weighted .links-col-headers,
+#stepForm.mode-proportional .links-col-headers {
   grid-template-columns: 20px 120px 1fr 60px 32px;
 }
-#stepForm.mode-weighted .link-row {
+#stepForm.mode-weighted .link-row,
+#stepForm.mode-proportional .link-row {
   grid-template-columns: 20px 120px 1fr 60px 32px;
 }
+/* Proportional: hide the "%" total row and the "must sum 100" hint */
+#stepForm.mode-proportional #weightTotalRow,
+#stepForm.mode-proportional #weightHint { display: none !important; }
 
 /* ═══ MODE BADGE (on cards) ═══ */
 .mode-badge {
@@ -700,6 +705,9 @@ input, textarea { font-family: inherit; }
 }
 .mode-badge.weighted {
   color: var(--accent); background: var(--accent-light);
+}
+.mode-badge.proportional {
+  color: #a78bfa; background: rgba(167,139,250,0.12);
 }
 .mode-badge.schedule {
   color: var(--yellow); background: rgba(245,158,11,0.12);

@@ -116,14 +116,16 @@ function bindEvents() {
   document.getElementById('btnViewList').onclick = () => setView('list');
 
   // Mode picker (step 1)
-  document.getElementById('modeCardEqual').onclick    = () => selectMode('equal');
-  document.getElementById('modeCardWeighted').onclick = () => selectMode('weighted');
-  document.getElementById('modeCardSchedule').onclick = () => selectMode('schedule');
+  document.getElementById('modeCardEqual').onclick         = () => selectMode('equal');
+  document.getElementById('modeCardWeighted').onclick      = () => selectMode('weighted');
+  document.getElementById('modeCardProportional').onclick  = () => selectMode('proportional');
+  document.getElementById('modeCardSchedule').onclick      = () => selectMode('schedule');
 
   // Mode toggle pills (step 2)
-  document.getElementById('modePillEqual').onclick    = () => setCurrentMode('equal');
-  document.getElementById('modePillWeighted').onclick = () => setCurrentMode('weighted');
-  document.getElementById('modePillSchedule').onclick = () => setCurrentMode('schedule');
+  document.getElementById('modePillEqual').onclick         = () => setCurrentMode('equal');
+  document.getElementById('modePillWeighted').onclick      = () => setCurrentMode('weighted');
+  document.getElementById('modePillProportional').onclick  = () => setCurrentMode('proportional');
+  document.getElementById('modePillSchedule').onclick      = () => setCurrentMode('schedule');
 
   // Folder management (inline in bar)
   document.getElementById('btnAddFolder').onclick = toggleInlineFolderCreate;
@@ -385,8 +387,9 @@ function renderCard(r) {
   const rotatorUrl = `${window.location.origin}/r/${r.slug}`;
   const linkCount = r.links?.length || 0;
   const createdDate = new Date(r.createdAt).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' });
-  const isEqual    = r.distributionMode === 'equal';
-  const isSchedule = r.distributionMode === 'schedule';
+  const isEqual        = r.distributionMode === 'equal';
+  const isSchedule     = r.distributionMode === 'schedule';
+  const isProportional = r.distributionMode === 'proportional';
 
   const totalWeight = (r.links || []).reduce((sum, l) => sum + (l.weight || 1), 0);
   const linksPreview = (r.links || []).slice(0, 4).map(l => {
@@ -426,7 +429,7 @@ function renderCard(r) {
           <div class="card-title">${escHtml(r.name)}</div>
           <div class="card-meta">
             ${linkCount} link${linkCount !== 1 ? 's' : ''} · ${createdDate}
-            <span class="mode-badge ${isEqual ? 'equal' : isSchedule ? 'schedule' : 'weighted'}">${isEqual ? 'Equitativa' : isSchedule ? 'Horario' : '% Pesado'}</span>${isSchedule ? `<span class="mode-badge tz-badge" title="${escHtml(r.timezone || '')}">${escHtml(TIMEZONE_LABELS[r.timezone] || r.timezone || 'Argentina')}</span>` : ''}
+            <span class="mode-badge ${isEqual ? 'equal' : isSchedule ? 'schedule' : isProportional ? 'proportional' : 'weighted'}">${isEqual ? 'Equitativa' : isSchedule ? 'Horario' : isProportional ? 'Por Peso' : '% Pesado'}</span>${isSchedule ? `<span class="mode-badge tz-badge" title="${escHtml(r.timezone || '')}">${escHtml(TIMEZONE_LABELS[r.timezone] || r.timezone || 'Argentina')}</span>` : ''}
           </div>
         </div>
         <div class="card-actions">
@@ -475,8 +478,9 @@ function renderRow(r) {
   const rotatorUrl = `${window.location.origin}/r/${r.slug}`;
   const linkCount = r.links?.length || 0;
   const createdDate = new Date(r.createdAt).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' });
-  const isEqual    = r.distributionMode === 'equal';
-  const isSchedule = r.distributionMode === 'schedule';
+  const isEqual        = r.distributionMode === 'equal';
+  const isSchedule     = r.distributionMode === 'schedule';
+  const isProportional = r.distributionMode === 'proportional';
   const folderOptions = `<option value="">Sin carpeta</option>` +
     folders.map(f => `<option value="${f.id}" ${String(r.folderId) === String(f.id) ? 'selected' : ''}>${escHtml(f.name)}</option>`).join('');
 
@@ -486,7 +490,7 @@ function renderRow(r) {
         <div class="row-title">${escHtml(r.name)}</div>
         <div class="row-meta">
           ${linkCount} link${linkCount !== 1 ? 's' : ''} · ${createdDate}
-          <span class="mode-badge ${isEqual ? 'equal' : isSchedule ? 'schedule' : 'weighted'}">${isEqual ? 'Equitativa' : isSchedule ? 'Horario' : '% Pesado'}</span>${isSchedule ? `<span class="mode-badge tz-badge" title="${escHtml(r.timezone || '')}">${escHtml(TIMEZONE_LABELS[r.timezone] || r.timezone || 'Argentina')}</span>` : ''}
+          <span class="mode-badge ${isEqual ? 'equal' : isSchedule ? 'schedule' : isProportional ? 'proportional' : 'weighted'}">${isEqual ? 'Equitativa' : isSchedule ? 'Horario' : isProportional ? 'Por Peso' : '% Pesado'}</span>${isSchedule ? `<span class="mode-badge tz-badge" title="${escHtml(r.timezone || '')}">${escHtml(TIMEZONE_LABELS[r.timezone] || r.timezone || 'Argentina')}</span>` : ''}
           <span class="row-folder-wrap">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
             <select class="card-folder-select row-folder-select" data-rotator-id="${r.id}">${folderOptions}</select>
@@ -575,13 +579,19 @@ function setCurrentMode(mode) {
 
 function updateModeUI() {
   const stepForm = document.getElementById('stepForm');
-  stepForm.classList.toggle('mode-equal',    currentMode === 'equal');
-  stepForm.classList.toggle('mode-weighted', currentMode === 'weighted');
-  stepForm.classList.toggle('mode-schedule', currentMode === 'schedule');
+  stepForm.classList.toggle('mode-equal',        currentMode === 'equal');
+  stepForm.classList.toggle('mode-weighted',     currentMode === 'weighted');
+  stepForm.classList.toggle('mode-proportional', currentMode === 'proportional');
+  stepForm.classList.toggle('mode-schedule',     currentMode === 'schedule');
 
-  document.getElementById('modePillEqual').classList.toggle('active',    currentMode === 'equal');
-  document.getElementById('modePillWeighted').classList.toggle('active', currentMode === 'weighted');
-  document.getElementById('modePillSchedule').classList.toggle('active', currentMode === 'schedule');
+  document.getElementById('modePillEqual').classList.toggle('active',        currentMode === 'equal');
+  document.getElementById('modePillWeighted').classList.toggle('active',     currentMode === 'weighted');
+  document.getElementById('modePillProportional').classList.toggle('active', currentMode === 'proportional');
+  document.getElementById('modePillSchedule').classList.toggle('active',     currentMode === 'schedule');
+
+  // Header column: "%" for weighted, "Peso" for proportional
+  const weightHeader = document.querySelector('#linksColHeaders .weight-only');
+  if (weightHeader) weightHeader.textContent = currentMode === 'proportional' ? 'Peso' : '%';
 
   updateWeightTotal();
 }
@@ -663,11 +673,12 @@ function addLinkRow(label = '', url = '', lid = '', clicks = 0, weight = 1, sche
     );
   } else {
     row.className = 'link-row';
+    const isProp = currentMode === 'proportional';
     row.innerHTML = `
       ${dragHandleHTML}
       <input type="text" placeholder="Etiqueta" value="${escHtml(label)}" class="link-label" maxlength="40" />
       <input type="url" placeholder="https://..." value="${escHtml(url)}" class="link-url" />
-      <input type="number" min="1" max="100" value="${weight}" class="link-weight" title="Porcentaje de tráfico" />
+      <input type="number" min="${isProp ? 0 : 1}" max="${isProp ? 99 : 100}" value="${weight}" class="link-weight" title="${isProp ? 'Peso (0 = pausado)' : 'Porcentaje de tráfico'}" />
       ${removeBtnHTML}
     `;
     row.querySelector('.link-weight').addEventListener('input', updateWeightTotal);
@@ -716,12 +727,13 @@ async function saveRotator() {
         }
       });
     } else {
+      const rawWeight = parseInt(row.querySelector('.link-weight').value) || 0;
       links.push({
         id: row.dataset.lid || undefined,
         label,
         url: normalized,
         clicks: parseInt(row.dataset.clicks || 0),
-        weight: Math.max(1, parseInt(row.querySelector('.link-weight').value) || 1)
+        weight: currentMode === 'proportional' ? Math.max(0, rawWeight) : Math.max(1, rawWeight)
       });
     }
   });
@@ -792,8 +804,9 @@ function renderStats(r) {
   const total = r.totalClicks || 0;
   const linkCount = r.links?.length || 0;
   const rotatorUrl = `${window.location.origin}/r/${r.slug}`;
-  const isEqual    = r.distributionMode === 'equal';
-  const isSchedule = r.distributionMode === 'schedule';
+  const isEqual        = r.distributionMode === 'equal';
+  const isSchedule     = r.distributionMode === 'schedule';
+  const isProportional = r.distributionMode === 'proportional';
 
   const avg = linkCount > 0 ? (total / linkCount).toFixed(1) : '0';
 
