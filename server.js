@@ -661,6 +661,22 @@ app.delete('/api/short-links/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// ─── Storage status ───────────────────────────────────────────────────────────
+
+app.get('/api/storage-status', authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT pg_database_size(current_database()) AS size_bytes`
+    );
+    const sizeBytes = parseInt(rows[0].size_bytes);
+    const limitBytes = 512 * 1024 * 1024; // 512 MB — Neon free tier
+    const percentage = Math.round((sizeBytes / limitBytes) * 100);
+    res.json({ sizeBytes, limitBytes, percentage });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al consultar storage' });
+  }
+});
+
 // ─── Catch-all ────────────────────────────────────────────────────────────────
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

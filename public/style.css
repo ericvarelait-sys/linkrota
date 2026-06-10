@@ -775,3 +775,35 @@ input, textarea { font-family: inherit; }
   .link-row-schedule-opts { padding-left: 0; flex-direction: column; align-items: flex-start; }
   .schedule-times input[type="time"] { width: 88px; }
 }
+
+/* ═══ STORAGE BANNER ═══ */
+.storage-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 24px;
+  font-size: 13px;
+  border-bottom: 1px solid transparent;
+}
+.storage-warning {
+  background: rgba(245,158,11,0.1);
+  border-color: rgba(245,158,11,0.25);
+  color: var(--yellow);
+}
+.storage-critical {
+  background: rgba(239,68,68,0.1);
+  border-color: rgba(239,68,68,0.3);
+  color: var(--red);
+}
+.storage-banner span { flex: 1; }
+.storage-banner-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  color: inherit;
+  opacity: 0.6;
+  padding: 0 4px;
+}
+.storage-banner-close:hover { opacity: 1; }

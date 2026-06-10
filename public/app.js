@@ -45,8 +45,29 @@ document.addEventListener('DOMContentLoaded', () => {
   bindEvents();
   if (getRole() === 'admin') {
     document.getElementById('btnTeam').style.display = 'inline-flex';
+    checkStorageStatus();
   }
 });
+
+async function checkStorageStatus() {
+  try {
+    const res = await fetch('/api/storage-status', {
+      headers: { Authorization: `Bearer ${getToken()}` }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.percentage >= 80) {
+      const banner = document.getElementById('storageBanner');
+      const text = document.getElementById('storageBannerText');
+      const usedMB = (data.sizeBytes / 1024 / 1024).toFixed(1);
+      const totalMB = (data.limitBytes / 1024 / 1024).toFixed(0);
+      text.innerHTML = `<strong>Almacenamiento al ${data.percentage}%</strong> — Usás ${usedMB} MB de ${totalMB} MB. Considerá limpiar historial de clicks.`;
+      banner.className = `storage-banner ${data.percentage >= 90 ? 'storage-critical' : 'storage-warning'}`;
+      banner.style.display = 'flex';
+      document.getElementById('btnStorageBannerClose').onclick = () => banner.style.display = 'none';
+    }
+  } catch (e) {}
+}
 
 function bindEvents() {
   document.getElementById('btnNewRotator').onclick = openCreateModal;
