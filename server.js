@@ -661,6 +661,48 @@ app.delete('/api/short-links/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// ─── Cleanup (manual + cron) ──────────────────────────────────────────────────
+
+async function runCleanup() {
+  const { rows } = await pool.query('SELECT id, click_history FROM rotators');
+  let cleaned = 0;
+  for (const row of rows) {
+    const history = row.click_history || [];
+    if (history.length > 0) {
+      await pool.query('UPDATE rotators SET click_history = $1 WHERE id = $2', ['[]', row.id]);
+      cleaned++;
+    }
+  }
+  return { rotatorsCleaned: cleaned };
+}
+
+// Manual cleanup — admin only
+app.post('/api/maintenance/cleanup', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const result = await runCleanup();
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al limpiar' });
+  }
+});
+
+// Cron cleanup — called by Vercel on the 1st of each month
+app.get('/api/cron/cleanup', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (secret && req.headers.authorization !== `Bearer ${secret}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const result = await runCleanup();
+    console.log('Limpieza automática mensual:', result);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error en limpieza automática' });
+  }
+});
+
 // ─── Storage status ───────────────────────────────────────────────────────────
 
 app.get('/api/storage-status', authMiddleware, async (req, res) => {

@@ -45,9 +45,29 @@ document.addEventListener('DOMContentLoaded', () => {
   bindEvents();
   if (getRole() === 'admin') {
     document.getElementById('btnTeam').style.display = 'inline-flex';
+    document.getElementById('btnCleanup').style.display = 'inline-flex';
     checkStorageStatus();
   }
 });
+
+async function cleanupHistory() {
+  if (!confirm('¿Limpiar todo el historial de visitas? Los contadores de clicks totales por link se mantienen, solo se borra el registro detallado.')) return;
+  try {
+    const res = await fetch('/api/maintenance/cleanup', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${getToken()}` }
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast(`Historial limpiado (${data.rotatorsCleaned} rotadores)`, 'success');
+      document.getElementById('storageBanner').style.display = 'none';
+    } else {
+      showToast('Error al limpiar', 'error');
+    }
+  } catch (e) {
+    showToast('Error al limpiar', 'error');
+  }
+}
 
 async function checkStorageStatus() {
   try {
@@ -80,6 +100,7 @@ function bindEvents() {
   document.getElementById('btnTheme').onclick = toggleTheme;
   document.getElementById('btnLogout').onclick = logout;
   document.getElementById('btnTeam').onclick = openTeamModal;
+  document.getElementById('btnCleanup').onclick = cleanupHistory;
   document.getElementById('btnCloseTeam').onclick = closeTeamModal;
   document.getElementById('btnAddMember').onclick = addMember;
   document.getElementById('btnShortLinks').onclick = openShortLinksModal;
