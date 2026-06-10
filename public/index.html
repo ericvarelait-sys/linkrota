@@ -87,6 +87,10 @@
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Nueva carpeta
       </button>
+      <button class="btn btn-ghost btn-sm" id="btnManageFolders" title="Gestionar carpetas">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+        Gestionar
+      </button>
     </div>
 
     <!-- View controls -->
@@ -349,6 +353,28 @@
         <!-- Members list -->
         <div class="team-section-title">Miembros actuales</div>
         <div id="teamList" class="team-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ MODAL: Folder Manager ═══ -->
+  <div class="modal-overlay" id="modalFolderManager">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>Gestionar Carpetas</h2>
+        <button class="btn btn-icon" id="btnCloseFolderManager">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="fm-create-root">
+          <input type="text" id="fmNewFolderName" placeholder="Nombre de nueva carpeta raíz…" maxlength="50" />
+          <button class="btn btn-primary btn-sm" id="btnFmCreateRoot">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Nueva carpeta
+          </button>
+        </div>
+        <div id="folderManagerList"></div>
       </div>
     </div>
   </div>

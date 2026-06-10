@@ -129,6 +129,15 @@ function bindEvents() {
 
   // Folder management (inline in bar)
   document.getElementById('btnAddFolder').onclick = toggleInlineFolderCreate;
+  document.getElementById('btnManageFolders').onclick = openFolderManager;
+  document.getElementById('btnCloseFolderManager').onclick = closeFolderManager;
+  document.getElementById('modalFolderManager').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeFolderManager();
+  });
+  document.getElementById('btnFmCreateRoot').onclick = fmCreateRootFolder;
+  document.getElementById('fmNewFolderName').addEventListener('keydown', e => {
+    if (e.key === 'Enter') fmCreateRootFolder();
+  });
   document.getElementById('btnInlineFolderSave').onclick = createFolderInline;
   document.getElementById('btnInlineFolderCancel').onclick = cancelInlineFolderCreate;
   document.getElementById('inlineFolderInput').addEventListener('keydown', e => {
@@ -447,10 +456,16 @@ function renderCard(r) {
 
       <div class="card-url-row">
         <div class="card-url" title="${rotatorUrl}">${rotatorUrl}</div>
-        <button class="btn-copy" data-action="copy" data-url="${rotatorUrl}">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-          Copiar
-        </button>
+        <div class="card-url-btns">
+          <button class="btn-copy" data-action="copy" data-url="${rotatorUrl}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copiar
+          </button>
+          <button class="btn-shorten" data-action="shorten" data-url="${rotatorUrl}" title="Crear link corto para este rotador">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            Acortar
+          </button>
+        </div>
       </div>
 
       <div class="card-links-preview">
@@ -499,10 +514,16 @@ function renderRow(r) {
       </div>
       <div class="row-url">
         <div class="card-url" title="${rotatorUrl}">${rotatorUrl}</div>
-        <button class="btn-copy" data-action="copy" data-url="${rotatorUrl}">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-          Copiar
-        </button>
+        <div class="card-url-btns">
+          <button class="btn-copy" data-action="copy" data-url="${rotatorUrl}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copiar
+          </button>
+          <button class="btn-shorten" data-action="shorten" data-url="${rotatorUrl}" title="Crear link corto">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            Acortar
+          </button>
+        </div>
       </div>
       <div class="row-clicks">
         <span class="click-badge">${(r.totalClicks || 0).toLocaleString()}</span>
@@ -530,6 +551,8 @@ function handleCardAction(e) {
 
   if (action === 'copy') {
     copyToClipboard(btn.dataset.url, btn);
+  } else if (action === 'shorten') {
+    openShortLinksModal(btn.dataset.url);
   } else if (action === 'edit') {
     openEditModal(id);
   } else if (action === 'delete') {
@@ -1095,6 +1118,150 @@ function populateFolderSelect(selectedFolderId) {
   document.getElementById('folderSelectGroup').style.display = '';
 }
 
+// ─── Folder Manager Modal ─────────────────────────────────────────────────────
+
+function openFolderManager() {
+  renderFolderManager();
+  document.getElementById('fmNewFolderName').value = '';
+  document.getElementById('modalFolderManager').classList.add('open');
+}
+
+function closeFolderManager() {
+  document.getElementById('modalFolderManager').classList.remove('open');
+}
+
+function renderFolderManager() {
+  const container = document.getElementById('folderManagerList');
+  const rootFolders = folders.filter(f => !f.parentId);
+
+  if (rootFolders.length === 0) {
+    container.innerHTML = '<div class="fm-empty">No hay carpetas todavía. ¡Creá la primera arriba!</div>';
+    return;
+  }
+
+  container.innerHTML = rootFolders.map(f => {
+    const subfolders = folders.filter(sf => String(sf.parentId) === String(f.id));
+    const directCount = rotators.filter(r => String(r.folderId) === String(f.id)).length;
+    const subCount = subfolders.reduce((s, sf) =>
+      s + rotators.filter(r => String(r.folderId) === String(sf.id)).length, 0);
+    const total = directCount + subCount;
+
+    const subfoldersHtml = subfolders.map(sf => {
+      const sfCount = rotators.filter(r => String(r.folderId) === String(sf.id)).length;
+      return `
+        <div class="fm-subfolder-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <span class="fm-sf-name">${escHtml(sf.name)}</span>
+          <span class="fm-sf-count">${sfCount} rot.</span>
+          <button class="fm-btn-icon" onclick="fmRename('${sf.id}')" title="Renombrar">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
+          <button class="fm-btn-icon fm-btn-delete" onclick="fmDelete('${sf.id}')" title="Eliminar">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>`;
+    }).join('');
+
+    return `
+      <div class="fm-folder-card">
+        <div class="fm-folder-header">
+          <div class="fm-folder-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <div class="fm-folder-info">
+            <div class="fm-folder-name">${escHtml(f.name)}</div>
+            <div class="fm-folder-meta">${total} rotador${total !== 1 ? 'es' : ''} · ${subfolders.length} subcarpeta${subfolders.length !== 1 ? 's' : ''}</div>
+          </div>
+          <div class="fm-folder-actions">
+            <button class="btn btn-ghost btn-sm" onclick="fmRename('${f.id}')">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              Renombrar
+            </button>
+            <button class="btn btn-ghost btn-sm btn-danger" onclick="fmDelete('${f.id}')">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+              Eliminar
+            </button>
+          </div>
+        </div>
+        <div class="fm-subfolders">
+          ${subfoldersHtml}
+          <div class="fm-add-subfolder">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <input type="text" class="fm-subfolder-input" placeholder="Nueva subcarpeta…" maxlength="50"
+              data-parent-id="${f.id}"
+              onkeydown="if(event.key==='Enter') fmCreateSubfolder('${f.id}', this)" />
+            <button class="btn btn-ghost btn-sm" onclick="fmCreateSubfolder('${f.id}', this.previousElementSibling)">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Agregar
+            </button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function fmCreateRootFolder() {
+  const input = document.getElementById('fmNewFolderName');
+  const name = input.value.trim();
+  if (!name) { input.focus(); return; }
+  try {
+    const folder = await api('POST', '/api/folders', { name, parentId: null });
+    folders.push(folder);
+    input.value = '';
+    renderFolderManager();
+    renderFolderBar();
+    toast('Carpeta creada', 'success');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function fmCreateSubfolder(parentId, inputEl) {
+  const name = inputEl.value.trim();
+  if (!name) { inputEl.focus(); return; }
+  try {
+    const folder = await api('POST', '/api/folders', { name, parentId });
+    folders.push(folder);
+    inputEl.value = '';
+    renderFolderManager();
+    renderFolderBar();
+    toast('Subcarpeta creada', 'success');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function fmRename(id) {
+  const folder = folders.find(f => String(f.id) === String(id));
+  if (!folder) return;
+  const newName = prompt('Nuevo nombre para la carpeta:', folder.name);
+  if (!newName || !newName.trim() || newName.trim() === folder.name) return;
+  try {
+    const updated = await api('PUT', `/api/folders/${id}`, { name: newName.trim() });
+    const idx = folders.findIndex(f => String(f.id) === String(id));
+    if (idx !== -1) folders[idx] = updated;
+    renderFolderManager();
+    renderFolderBar();
+    renderAll();
+    toast('Carpeta renombrada', 'success');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function fmDelete(id) {
+  const folder = folders.find(f => String(f.id) === String(id));
+  if (!folder) return;
+  const affected = rotators.filter(r => String(r.folderId) === String(id)).length;
+  let msg = `¿Eliminar la carpeta "${folder.name}"?`;
+  if (affected > 0) msg += `\n${affected} rotador(es) quedarán sin carpeta.`;
+  if (!confirm(msg)) return;
+  try {
+    await api('DELETE', `/api/folders/${id}`);
+    folders = folders.filter(f => String(f.id) !== String(id) && String(f.parentId) !== String(id));
+    rotators.forEach(r => { if (String(r.folderId) === String(id)) r.folderId = null; });
+    if (String(currentFolderId) === String(id)) currentFolderId = 'all';
+    renderFolderManager();
+    renderFolderBar();
+    renderAll();
+    toast('Carpeta eliminada', 'info');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 // ─── Inline folder creation ───────────────────────────────────────────────────
 
 function toggleInlineFolderCreate() {
@@ -1215,11 +1382,12 @@ async function moveRotatorFolder(rotatorId, folderId) {
 
 // ─── Short Links ──────────────────────────────────────────────────────────────
 
-async function openShortLinksModal() {
-  document.getElementById('newShortUrl').value = '';
+async function openShortLinksModal(prefilledUrl = '') {
+  document.getElementById('newShortUrl').value = prefilledUrl || '';
   document.getElementById('newShortLabel').value = '';
   document.getElementById('newShortCode').value = '';
   document.getElementById('modalShortLinks').classList.add('open');
+  if (prefilledUrl) setTimeout(() => document.getElementById('newShortLabel').focus(), 80);
   await loadShortLinks();
 }
 
