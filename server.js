@@ -12,14 +12,15 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-prod';
 
 // ─── Database ─────────────────────────────────────────────────────────────────
 
+const DB_URL = process.env.POSTGRES_URL || process.env.DATABASE_URL;
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: DB_URL,
   ssl: process.env.DATABASE_SSL === 'false' ? false
-     : process.env.DATABASE_URL ? { rejectUnauthorized: false }
+     : DB_URL ? { rejectUnauthorized: false }
      : false,
-  max: 5,
+  max: 1,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 10000,
 });
 
 function hashPassword(password) {
@@ -323,6 +324,22 @@ app.get('/r/:slug', async (req, res) => {
         </body></html>`);
     }
 
+    // Fast-path: single active link — skip all selection logic
+    if (links.length === 1) {
+      res.redirect(links[0].url);
+      links[0].clicks = (links[0].clicks || 0) + 1;
+      links[0].weight_clicks = (links[0].weight_clicks || 0) + 1;
+      const newTotal = row.total_clicks + 1;
+      let history = row.click_history || [];
+      history.push({ ts: Date.now(), linkIndex: 0, url: links[0].url });
+      if (history.length > 500) history = history.slice(-500);
+      await pool.query(
+        `UPDATE rotators SET links=$1, total_clicks=$2, click_history=$3 WHERE id=$4`,
+        [JSON.stringify(links), newTotal, JSON.stringify(history), row.id]
+      );
+      return;
+    }
+
     const mode = row.distribution_mode || 'weighted';
     let idx, newCurrentIndex;
 
@@ -363,6 +380,9 @@ app.get('/r/:slug', async (req, res) => {
 
     const target = links[idx];
 
+    // Redirect immediately — analytics update runs in background
+    res.redirect(target.url);
+
     links[idx].clicks = (links[idx].clicks || 0) + 1;
     links[idx].weight_clicks = (links[idx].weight_clicks || 0) + 1;
     const newTotal = row.total_clicks + 1;
@@ -375,11 +395,9 @@ app.get('/r/:slug', async (req, res) => {
       `UPDATE rotators SET links=$1, total_clicks=$2, click_history=$3, current_index=$4 WHERE id=$5`,
       [JSON.stringify(links), newTotal, JSON.stringify(history), newCurrentIndex, row.id]
     );
-
-    res.redirect(target.url);
   } catch (e) {
+    if (!res.headersSent) res.status(500).send('Error interno');
     console.error(e);
-    res.status(500).send('Error interno');
   }
 });
 
@@ -612,11 +630,11 @@ app.get('/s/:code', async (req, res) => {
           <h2>Link corto no encontrado</h2><a href="/">Volver al inicio</a>
         </body></html>`);
     }
-    await pool.query('UPDATE short_links SET clicks = clicks + 1 WHERE id = $1', [row.id]);
     res.redirect(row.url);
+    await pool.query('UPDATE short_links SET clicks = clicks + 1 WHERE id = $1', [row.id]);
   } catch (e) {
+    if (!res.headersSent) res.status(500).send('Error interno');
     console.error(e);
-    res.status(500).send('Error interno');
   }
 });
 
