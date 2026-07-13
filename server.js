@@ -12,7 +12,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-prod';
 
 // ─── Database ─────────────────────────────────────────────────────────────────
 
-const DB_URL = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+const DB_URL = process.env.DATABASE_URL;
 const pool = new Pool({
   connectionString: DB_URL,
   ssl: process.env.DATABASE_SSL === 'false' ? false
