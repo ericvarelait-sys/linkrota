@@ -12,7 +12,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-prod';
 
 // ─── Database ─────────────────────────────────────────────────────────────────
 
-const DB_URL = process.env.DATABASE_URL;
+const DB_URL = process.env.POSTGRES_URL || process.env.DATABASE_URL;
 const pool = new Pool({
   connectionString: DB_URL,
   ssl: process.env.DATABASE_SSL === 'false' ? false
@@ -95,10 +95,15 @@ async function initDb() {
   console.log('DB lista');
 }
 
-// Lazy DB init — starts on first request, reused across warm invocations
+// Lazy DB init — resets on failure so the next request retries instead of fast-failing
 let dbInitPromise = null;
 function getDbReady() {
-  if (!dbInitPromise) dbInitPromise = initDb();
+  if (!dbInitPromise) {
+    dbInitPromise = initDb().catch(e => {
+      dbInitPromise = null;
+      throw e;
+    });
+  }
   return dbInitPromise;
 }
 
