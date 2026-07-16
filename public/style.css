@@ -578,13 +578,23 @@ input, textarea { font-family: inherit; }
 }
 .link-preview-schedule small { color: var(--text2); }
 
-/* Hide weight-only elements in schedule mode */
-#stepForm.mode-schedule .weight-only     { display: none !important; }
+/* Hide weight-only elements in schedule and daily_quota mode */
+#stepForm.mode-schedule    .weight-only { display: none !important; }
+#stepForm.mode-daily-quota .weight-only { display: none !important; }
 #stepForm.mode-schedule #linksColHeaders { display: none !important; }
 
-/* Show schedule-only elements only in schedule mode */
-.schedule-only { display: none !important; }
-#stepForm.mode-schedule .schedule-only { display: block !important; }
+/* Show tz-mode-only in schedule and daily_quota mode */
+.tz-mode-only { display: none !important; }
+#stepForm.mode-schedule    .tz-mode-only { display: block !important; }
+#stepForm.mode-daily-quota .tz-mode-only { display: block !important; }
+
+/* quota-only: only visible in daily_quota mode */
+.quota-only { display: none !important; }
+#stepForm.mode-daily-quota .quota-only { display: initial !important; }
+
+/* daily_quota link row: 5 columns with quota input */
+#stepForm.mode-daily-quota .links-col-headers { grid-template-columns: 20px 120px 1fr 70px 32px; }
+#stepForm.mode-daily-quota .link-row          { grid-template-columns: 20px 120px 1fr 70px 32px; }
 
 /* Timezone badge */
 .tz-badge {
@@ -711,6 +721,9 @@ input, textarea { font-family: inherit; }
 }
 .mode-badge.schedule {
   color: var(--yellow); background: rgba(245,158,11,0.12);
+}
+.mode-badge.daily-quota {
+  color: #f97316; background: rgba(249,115,22,0.12);
 }
 
 /* ═══ SHORT LINKS ═══ */

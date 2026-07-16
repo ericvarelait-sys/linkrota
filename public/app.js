@@ -120,12 +120,14 @@ function bindEvents() {
   document.getElementById('modeCardWeighted').onclick      = () => selectMode('weighted');
   document.getElementById('modeCardProportional').onclick  = () => selectMode('proportional');
   document.getElementById('modeCardSchedule').onclick      = () => selectMode('schedule');
+  document.getElementById('modeCardDailyQuota').onclick    = () => selectMode('daily_quota');
 
   // Mode toggle pills (step 2)
   document.getElementById('modePillEqual').onclick         = () => setCurrentMode('equal');
   document.getElementById('modePillWeighted').onclick      = () => setCurrentMode('weighted');
   document.getElementById('modePillProportional').onclick  = () => setCurrentMode('proportional');
   document.getElementById('modePillSchedule').onclick      = () => setCurrentMode('schedule');
+  document.getElementById('modePillDailyQuota').onclick    = () => setCurrentMode('daily_quota');
 
   // Folder management (inline in bar)
   document.getElementById('btnAddFolder').onclick = toggleInlineFolderCreate;
@@ -399,6 +401,7 @@ function renderCard(r) {
   const isEqual        = r.distributionMode === 'equal';
   const isSchedule     = r.distributionMode === 'schedule';
   const isProportional = r.distributionMode === 'proportional';
+  const isDailyQuota   = r.distributionMode === 'daily_quota';
 
   const totalWeight = (r.links || []).reduce((sum, l) => sum + (l.weight || 1), 0);
   const linksPreview = (r.links || []).slice(0, 4).map(l => {
@@ -409,6 +412,10 @@ function renderCard(r) {
       pctDisplay = `<span class="link-preview-schedule" title="${escHtml(days + (time ? ' ' + time : ''))}">
         ${escHtml(days)}${time ? `<br><small>${escHtml(time)}</small>` : ''}
       </span>`;
+    } else if (isDailyQuota) {
+      pctDisplay = l.daily_quota != null
+        ? `<span style="color:var(--accent);font-size:11px;font-weight:600">${l.daily_quota}/día</span>`
+        : `<span style="color:var(--text3);font-size:11px">∞/día</span>`;
     } else {
       pctDisplay = isEqual
         ? '&nbsp;=&nbsp;'
@@ -438,7 +445,7 @@ function renderCard(r) {
           <div class="card-title">${escHtml(r.name)}</div>
           <div class="card-meta">
             ${linkCount} link${linkCount !== 1 ? 's' : ''} · ${createdDate}
-            <span class="mode-badge ${isEqual ? 'equal' : isSchedule ? 'schedule' : isProportional ? 'proportional' : 'weighted'}">${isEqual ? 'Equitativa' : isSchedule ? 'Horario' : isProportional ? 'Por Peso' : '% Pesado'}</span>${isSchedule ? `<span class="mode-badge tz-badge" title="${escHtml(r.timezone || '')}">${escHtml(TIMEZONE_LABELS[r.timezone] || r.timezone || 'Argentina')}</span>` : ''}
+            <span class="mode-badge ${isEqual ? 'equal' : isSchedule ? 'schedule' : isProportional ? 'proportional' : isDailyQuota ? 'daily-quota' : 'weighted'}">${isEqual ? 'Equitativa' : isSchedule ? 'Horario' : isProportional ? 'Por Peso' : isDailyQuota ? 'Cuota Diaria' : '% Pesado'}</span>${(isSchedule || isDailyQuota) ? `<span class="mode-badge tz-badge" title="${escHtml(r.timezone || '')}">${escHtml(TIMEZONE_LABELS[r.timezone] || r.timezone || 'Argentina')}</span>` : ''}
           </div>
         </div>
         <div class="card-actions">
@@ -496,6 +503,7 @@ function renderRow(r) {
   const isEqual        = r.distributionMode === 'equal';
   const isSchedule     = r.distributionMode === 'schedule';
   const isProportional = r.distributionMode === 'proportional';
+  const isDailyQuota   = r.distributionMode === 'daily_quota';
   const folderOptions = `<option value="">Sin carpeta</option>` +
     folders.map(f => `<option value="${f.id}" ${String(r.folderId) === String(f.id) ? 'selected' : ''}>${escHtml(f.name)}</option>`).join('');
 
@@ -505,7 +513,7 @@ function renderRow(r) {
         <div class="row-title">${escHtml(r.name)}</div>
         <div class="row-meta">
           ${linkCount} link${linkCount !== 1 ? 's' : ''} · ${createdDate}
-          <span class="mode-badge ${isEqual ? 'equal' : isSchedule ? 'schedule' : isProportional ? 'proportional' : 'weighted'}">${isEqual ? 'Equitativa' : isSchedule ? 'Horario' : isProportional ? 'Por Peso' : '% Pesado'}</span>${isSchedule ? `<span class="mode-badge tz-badge" title="${escHtml(r.timezone || '')}">${escHtml(TIMEZONE_LABELS[r.timezone] || r.timezone || 'Argentina')}</span>` : ''}
+          <span class="mode-badge ${isEqual ? 'equal' : isSchedule ? 'schedule' : isProportional ? 'proportional' : isDailyQuota ? 'daily-quota' : 'weighted'}">${isEqual ? 'Equitativa' : isSchedule ? 'Horario' : isProportional ? 'Por Peso' : isDailyQuota ? 'Cuota Diaria' : '% Pesado'}</span>${(isSchedule || isDailyQuota) ? `<span class="mode-badge tz-badge" title="${escHtml(r.timezone || '')}">${escHtml(TIMEZONE_LABELS[r.timezone] || r.timezone || 'Argentina')}</span>` : ''}
           <span class="row-folder-wrap">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
             <select class="card-folder-select row-folder-select" data-rotator-id="${r.id}">${folderOptions}</select>
@@ -606,11 +614,13 @@ function updateModeUI() {
   stepForm.classList.toggle('mode-weighted',     currentMode === 'weighted');
   stepForm.classList.toggle('mode-proportional', currentMode === 'proportional');
   stepForm.classList.toggle('mode-schedule',     currentMode === 'schedule');
+  stepForm.classList.toggle('mode-daily-quota',  currentMode === 'daily_quota');
 
   document.getElementById('modePillEqual').classList.toggle('active',        currentMode === 'equal');
   document.getElementById('modePillWeighted').classList.toggle('active',     currentMode === 'weighted');
   document.getElementById('modePillProportional').classList.toggle('active', currentMode === 'proportional');
   document.getElementById('modePillSchedule').classList.toggle('active',     currentMode === 'schedule');
+  document.getElementById('modePillDailyQuota').classList.toggle('active',   currentMode === 'daily_quota');
 
   // Header column: "%" for weighted, "Peso" for proportional
   const weightHeader = document.querySelector('#linksColHeaders .weight-only');
@@ -637,7 +647,7 @@ function openEditModal(id) {
 
   const list = document.getElementById('linksList');
   list.innerHTML = '';
-  r.links.forEach(l => addLinkRow(l.label, l.url, l.id, l.clicks, l.weight || 1, l.schedule || null));
+  r.links.forEach(l => addLinkRow(l.label, l.url, l.id, l.clicks, l.weight || 1, l.schedule || null, l.daily_quota ?? null));
 
   updateModeUI();
   document.getElementById('modalRotator').classList.add('open');
@@ -648,7 +658,7 @@ function closeModal() {
   document.getElementById('modalRotator').classList.remove('open');
 }
 
-function addLinkRow(label = '', url = '', lid = '', clicks = 0, weight = 1, schedule = null) {
+function addLinkRow(label = '', url = '', lid = '', clicks = 0, weight = 1, schedule = null, dailyQuota = null) {
   const list = document.getElementById('linksList');
   const row = document.createElement('div');
   row.draggable = true;
@@ -694,6 +704,16 @@ function addLinkRow(label = '', url = '', lid = '', clicks = 0, weight = 1, sche
     row.querySelectorAll('.day-btn').forEach(btn =>
       btn.addEventListener('click', () => btn.classList.toggle('active'))
     );
+  } else if (currentMode === 'daily_quota') {
+    row.className = 'link-row';
+    const quotaVal = dailyQuota != null ? dailyQuota : '';
+    row.innerHTML = `
+      ${dragHandleHTML}
+      <input type="text" placeholder="Etiqueta" value="${escHtml(label)}" class="link-label" maxlength="40" />
+      <input type="url" placeholder="https://..." value="${escHtml(url)}" class="link-url" />
+      <input type="number" min="0" max="9999" value="${quotaVal}" placeholder="∞" class="link-quota quota-only" title="Clicks máximos por día (vacío = sin límite)" />
+      ${removeBtnHTML}
+    `;
   } else {
     row.className = 'link-row';
     const isProp = currentMode === 'proportional';
@@ -748,6 +768,17 @@ async function saveRotator() {
           timeStart: row.querySelector('.link-time-start').value || '00:00',
           timeEnd:   row.querySelector('.link-time-end').value   || '23:59'
         }
+      });
+    } else if (currentMode === 'daily_quota') {
+      const quotaInput = row.querySelector('.link-quota');
+      const rawQuota = quotaInput ? quotaInput.value.trim() : '';
+      links.push({
+        id: row.dataset.lid || undefined,
+        label,
+        url: normalized,
+        clicks: parseInt(row.dataset.clicks || 0),
+        weight: 1,
+        daily_quota: rawQuota !== '' ? Math.max(0, parseInt(rawQuota) || 0) : null
       });
     } else {
       const rawWeight = parseInt(row.querySelector('.link-weight').value) || 0;
@@ -830,6 +861,7 @@ function renderStats(r) {
   const isEqual        = r.distributionMode === 'equal';
   const isSchedule     = r.distributionMode === 'schedule';
   const isProportional = r.distributionMode === 'proportional';
+  const isDailyQuota   = r.distributionMode === 'daily_quota';
 
   const avg = linkCount > 0 ? (total / linkCount).toFixed(1) : '0';
 
@@ -846,6 +878,10 @@ function renderStats(r) {
         const time = formatScheduleTime(l.schedule);
         configPct = `<span style="font-size:11px;color:var(--accent)">${escHtml(days)}</span>
                      ${time ? `<br><span style="font-size:11px;color:var(--text2)">${escHtml(time)}</span>` : ''}`;
+      } else if (isDailyQuota) {
+        configPct = l.daily_quota != null
+          ? `<span style="color:var(--accent);font-weight:600">${l.daily_quota}/día</span>`
+          : `<span style="color:var(--text3)">∞/día</span>`;
       } else {
         configPct = isEqual
           ? `<span style="color:var(--text3)">—</span>`
@@ -896,7 +932,7 @@ function renderStats(r) {
         <div class="stats-mini-label">Promedio por link</div>
       </div>
       <div class="stats-mini-card">
-        <div class="stats-mini-val" style="font-size:14px">${isEqual ? 'Equitativa' : isSchedule ? 'Horario' : 'Por %'}</div>
+        <div class="stats-mini-val" style="font-size:14px">${isEqual ? 'Equitativa' : isSchedule ? 'Horario' : isDailyQuota ? 'Cuota Diaria' : 'Por %'}</div>
         <div class="stats-mini-label">Distribución</div>
       </div>
     </div>
@@ -916,7 +952,7 @@ function renderStats(r) {
         <thead>
           <tr>
             <th>Link</th>
-            <th>${isSchedule ? 'Horario' : isEqual ? 'Config.' : 'Peso cfg.'}</th>
+            <th>${isSchedule ? 'Horario' : isDailyQuota ? 'Cuota/día' : isEqual ? 'Config.' : 'Peso cfg.'}</th>
             <th>Clicks</th>
             <th>% real</th>
             <th>Distribución</th>

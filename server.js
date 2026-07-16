@@ -46,7 +46,8 @@ async function initDb() {
   const migrations = [
     `ALTER TABLE rotators ADD COLUMN IF NOT EXISTS distribution_mode TEXT NOT NULL DEFAULT 'weighted'`,
     `ALTER TABLE rotators ADD COLUMN IF NOT EXISTS folder_id TEXT`,
-    `ALTER TABLE rotators ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'America/Argentina/Buenos_Aires'`
+    `ALTER TABLE rotators ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'America/Argentina/Buenos_Aires'`,
+    `ALTER TABLE rotators ADD COLUMN IF NOT EXISTS quota_reset_date TEXT`
   ];
   for (const sql of migrations) {
     try { await pool.query(sql); } catch (e) { console.warn('Migration skipped:', e.message); }
@@ -301,6 +302,7 @@ function rowToRotator(row) {
     distributionMode: row.distribution_mode || 'weighted',
     folderId: row.folder_id || null,
     timezone: row.timezone || 'America/Argentina/Buenos_Aires',
+    quotaResetDate: row.quota_reset_date || null,
     createdAt: row.created_at
   };
 }
@@ -320,7 +322,7 @@ app.get('/r/:slug', async (req, res) => {
         </body></html>`);
     }
 
-    const links = row.links;
+    let links = row.links;
     if (!links || links.length === 0) {
       return res.status(404).send(`
         <html><head><meta charset="UTF-8"></head>
@@ -329,8 +331,10 @@ app.get('/r/:slug', async (req, res) => {
         </body></html>`);
     }
 
-    // Fast-path: single active link — skip all selection logic
-    if (links.length === 1) {
+    const mode = row.distribution_mode || 'weighted';
+
+    // Fast-path: single link, skip for daily_quota (needs date tracking)
+    if (links.length === 1 && mode !== 'daily_quota') {
       res.redirect(links[0].url);
       links[0].clicks = (links[0].clicks || 0) + 1;
       links[0].weight_clicks = (links[0].weight_clicks || 0) + 1;
@@ -345,8 +349,8 @@ app.get('/r/:slug', async (req, res) => {
       return;
     }
 
-    const mode = row.distribution_mode || 'weighted';
     let idx, newCurrentIndex;
+    let quotaResetDate = null;
 
     if (mode === 'equal') {
       idx = row.current_index % links.length;
@@ -354,7 +358,7 @@ app.get('/r/:slug', async (req, res) => {
     } else if (mode === 'schedule') {
       const tz = row.timezone || 'America/Argentina/Buenos_Aires';
       const arNow = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
-      const currentDay = arNow.getDay(); // 0=Dom … 6=Sáb
+      const currentDay = arNow.getDay();
       const hh = arNow.getHours().toString().padStart(2, '0');
       const mm = arNow.getMinutes().toString().padStart(2, '0');
       const currentTime = `${hh}:${mm}`;
@@ -378,6 +382,37 @@ app.get('/r/:slug', async (req, res) => {
           </body></html>`);
       }
       newCurrentIndex = row.current_index;
+    } else if (mode === 'daily_quota') {
+      const tz = row.timezone || 'America/Argentina/Buenos_Aires';
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: tz });
+      quotaResetDate = today;
+
+      if (row.quota_reset_date !== today) {
+        links = links.map(l => ({ ...l, daily_clicks: 0 }));
+      }
+
+      // Links with remaining quota + unlimited links (no daily_quota set)
+      const linkPool = links
+        .map((l, i) => ({ ...l, _idx: i }))
+        .filter(l => l.daily_quota == null || (l.daily_clicks || 0) < l.daily_quota);
+
+      // If all quota links exhausted, fall back to unlimited links only
+      const activeLinkPool = linkPool.length > 0 ? linkPool
+        : links.map((l, i) => ({ ...l, _idx: i })).filter(l => l.daily_quota == null);
+
+      if (activeLinkPool.length === 0) {
+        return res.status(200).send(`
+          <html><head><meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1">
+          </head>
+          <body style="font-family:sans-serif;text-align:center;padding:60px;color:#888">
+            <h2 style="color:#444">Cuota diaria agotada</h2>
+            <p style="margin-top:8px">Este rotador alcanzó su límite de clicks por hoy. Volvé mañana.</p>
+          </body></html>`);
+      }
+
+      idx = activeLinkPool[row.current_index % activeLinkPool.length]._idx;
+      newCurrentIndex = row.current_index + 1;
     } else {
       idx = selectWeightedIndex(links);
       newCurrentIndex = row.current_index;
@@ -390,16 +425,26 @@ app.get('/r/:slug', async (req, res) => {
 
     links[idx].clicks = (links[idx].clicks || 0) + 1;
     links[idx].weight_clicks = (links[idx].weight_clicks || 0) + 1;
+    if (mode === 'daily_quota') {
+      links[idx].daily_clicks = (links[idx].daily_clicks || 0) + 1;
+    }
     const newTotal = row.total_clicks + 1;
 
     let history = row.click_history || [];
     history.push({ ts: Date.now(), linkIndex: idx, url: target.url });
     if (history.length > 500) history = history.slice(-500);
 
-    await pool.query(
-      `UPDATE rotators SET links=$1, total_clicks=$2, click_history=$3, current_index=$4 WHERE id=$5`,
-      [JSON.stringify(links), newTotal, JSON.stringify(history), newCurrentIndex, row.id]
-    );
+    if (mode === 'daily_quota') {
+      await pool.query(
+        `UPDATE rotators SET links=$1, total_clicks=$2, click_history=$3, current_index=$4, quota_reset_date=$5 WHERE id=$6`,
+        [JSON.stringify(links), newTotal, JSON.stringify(history), newCurrentIndex, quotaResetDate, row.id]
+      );
+    } else {
+      await pool.query(
+        `UPDATE rotators SET links=$1, total_clicks=$2, click_history=$3, current_index=$4 WHERE id=$5`,
+        [JSON.stringify(links), newTotal, JSON.stringify(history), newCurrentIndex, row.id]
+      );
+    }
   } catch (e) {
     if (!res.headersSent) res.status(500).send('Error interno');
     console.error(e);
@@ -424,7 +469,7 @@ app.post('/api/rotators', authMiddleware, async (req, res) => {
   if (!Array.isArray(links) || links.length < 1)
     return res.status(400).json({ error: 'Se necesita al menos 1 link' });
 
-  const mode = ['equal', 'weighted', 'schedule', 'proportional'].includes(distributionMode) ? distributionMode : 'weighted';
+  const mode = ['equal', 'weighted', 'schedule', 'proportional', 'daily_quota'].includes(distributionMode) ? distributionMode : 'weighted';
   const validTimezone = (timezone && timezone.trim()) ? timezone.trim() : 'America/Argentina/Buenos_Aires';
   const validFolderId = folderId || null;
 
@@ -442,7 +487,9 @@ app.post('/api/rotators', authMiddleware, async (req, res) => {
     clicks: 0,
     weight_clicks: 0,
     weight: mode === 'proportional' ? Math.max(0, parseInt(l.weight) || 0) : Math.max(1, parseInt(l.weight) || 1),
-    schedule: l.schedule || null
+    schedule: l.schedule || null,
+    daily_quota: mode === 'daily_quota' ? (l.daily_quota != null ? Math.max(0, parseInt(l.daily_quota) || 0) : null) : null,
+    daily_clicks: 0
   }));
 
   try {
@@ -475,7 +522,7 @@ app.put('/api/rotators/:id', authMiddleware, async (req, res) => {
     if (!existing[0]) return res.status(404).json({ error: 'No encontrado' });
 
     const newName = (name && name.trim()) ? name.trim() : existing[0].name;
-    const newMode = ['equal', 'weighted', 'schedule', 'proportional'].includes(distributionMode)
+    const newMode = ['equal', 'weighted', 'schedule', 'proportional', 'daily_quota'].includes(distributionMode)
       ? distributionMode
       : (existing[0].distribution_mode || 'weighted');
     const newTimezone = (timezone && timezone.trim())
@@ -506,11 +553,11 @@ app.put('/api/rotators/:id', authMiddleware, async (req, res) => {
           label: (l.label || '').trim() || `Link ${i + 1}`,
           url: l.url.trim(),
           clicks: l.clicks || 0,
-          // Reset period counter whenever weights/members change so the new
-          // distribution takes effect immediately without a catch-up phase.
           weight_clicks: weightsChanged ? 0 : (old ? (old.weight_clicks || 0) : 0),
           weight: newMode === 'proportional' ? Math.max(0, parseInt(l.weight) || 0) : Math.max(1, parseInt(l.weight) || 1),
-          schedule: l.schedule || null
+          schedule: l.schedule || null,
+          daily_quota: newMode === 'daily_quota' ? (l.daily_quota != null ? Math.max(0, parseInt(l.daily_quota) || 0) : null) : null,
+          daily_clicks: old ? (old.daily_clicks || 0) : 0
         };
       });
     }
