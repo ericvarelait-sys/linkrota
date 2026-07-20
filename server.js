@@ -391,14 +391,16 @@ app.get('/r/:slug', async (req, res) => {
         links = links.map(l => ({ ...l, daily_clicks: 0 }));
       }
 
-      // Links with remaining quota + unlimited links (no daily_quota set)
-      const linkPool = links
+      // Priority: quota links with remaining capacity FIRST, then unlimited
+      const quotaLinks = links
         .map((l, i) => ({ ...l, _idx: i }))
-        .filter(l => l.daily_quota == null || (l.daily_clicks || 0) < l.daily_quota);
+        .filter(l => l.daily_quota != null && (l.daily_clicks || 0) < l.daily_quota);
 
-      // If all quota links exhausted, fall back to unlimited links only
-      const activeLinkPool = linkPool.length > 0 ? linkPool
-        : links.map((l, i) => ({ ...l, _idx: i })).filter(l => l.daily_quota == null);
+      const unlimitedLinks = links
+        .map((l, i) => ({ ...l, _idx: i }))
+        .filter(l => l.daily_quota == null);
+
+      const activeLinkPool = quotaLinks.length > 0 ? quotaLinks : unlimitedLinks;
 
       if (activeLinkPool.length === 0) {
         return res.status(200).send(`
